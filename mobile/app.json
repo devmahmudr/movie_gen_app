@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Movie App",
+    "slug": "movie-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.movieapp"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#000000"
+      },
+      "package": "com.movieapp"
+    },
+    "scheme": "movieapp",
+    "plugins": [
+      "expo-router"
+    ],
+    "extra": {
+      "apiUrl": "https://your-app.up.railway.app"
+    }
+  }
+}
+
