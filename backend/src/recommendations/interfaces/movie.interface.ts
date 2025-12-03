@@ -9,6 +9,9 @@ export interface Movie {
   historyId?: string;
   isWatched?: boolean;
   isNotInterested?: boolean;
+  overview?: string;
+  country?: string;
+  imdbRating?: number;
 }
 
 export interface OpenAIRecommendation {

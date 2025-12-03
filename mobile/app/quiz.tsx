@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,10 +8,13 @@ import {
   ActivityIndicator,
   Pressable,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useSegments } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { recommendationsAPI } from '../services/apiClient';
+import { useLanguageStore } from '../store/languageStore';
 import { theme } from '../constants/theme';
 import { StyledInput } from '../components/StyledInput';
 import { useAuthStore } from '../store/authStore';
@@ -25,9 +28,73 @@ interface QuizAnswers {
   format?: string;
 }
 
+const moodToTagsMap: { [key: string]: string[] } = {
+  Расслабиться: [
+    '🌿 Природная атмосфера',
+    '🏡 Уют',
+    '🎭 Мощная эмоция',
+  ],
+  'Поднять настроение': [
+    '🔥 Экшен',
+    '🎭 Мощная эмоция',
+  ],
+  Посмеяться: [
+    '🎭 Мощная эмоция',
+    '🎢 Неожиданный финал',
+  ],
+  Удивиться: [
+    '👁 Мистика',
+    '🌀 Загадочность',
+    '🎢 Неожиданный финал',
+    '⏳ Временная петля',
+    '🧠 Глубокий смысл',
+    '🤖 Роботы / ИИ',
+    '🛸 Пришельцы',
+    '🌆 Будущее / киберпанк',
+  ],
+  'Почувствовать уют/тепло': [
+    '🏡 Уют',
+    '🌿 Природная атмосфера',
+    '🎭 Мощная эмоция',
+  ],
+  Адреналин: [
+    '🔥 Экшен',
+    '🪖 Война',
+    '👊🏻 Криминал',
+    '🕳 Психологический триллер',
+    '🔍 Расследование',
+  ],
+  'Погрузиться в атмосферу': [
+    '🌌 Космос',
+    '🌆 Будущее / киберпанк',
+    '🌿 Природная атмосфера',
+    '🏡 Уют',
+    '👁 Мистика',
+    '🌀 Загадочность',
+  ],
+  Вдохновиться: [
+    '🌌 Космос',
+    '🧠 Глубокий смысл',
+    '🎭 Мощная эмоция',
+    '🌆 Будущее / киберпанк',
+  ],
+  'Чуть попереживать': [
+    '🔍 Расследование',
+    '👊🏻 Криминал',
+    '🕳 Психологический триллер',
+    '🎭 Мощная эмоция',
+  ],
+  'Немного попугаться': [
+    '👁 Мистика',
+    '🌀 Загадочность',
+    '🕳 Психологический триллер',
+    '🔍 Расследование',
+  ],
+};
+
 const QUIZ_STEPS = [
   {
-    question: 'С кем смотришь?',
+    question: 'С кем ты сегодня смотришь?',
     options: [
       'Один',
       'С девушкой/парнем',
@@ -38,7 +105,7 @@ const QUIZ_STEPS = [
     key: 'context' as keyof QuizAnswers,
   },
   {
-    question: 'Настроение (1–2 эмоции)',
+    question: 'Какое настроение хочешь получить? (1–2 эмоции)',
     options: [
       'Расслабиться',
       'Поднять настроение',
@@ -56,7 +123,7 @@ const QUIZ_STEPS = [
     maxSelections: 2,
   },
   {
-    question: 'Атмосфера / сюжетные мотивы (1–2 тега)',
+    question: 'Какую атмосферу и сюжетные мотивы хочешь сегодня? (1–2 тега)',
     options: [
       '🛸 Пришельцы',
       '👁 Мистика',
@@ -70,8 +137,8 @@ const QUIZ_STEPS = [
       '🤖 Роботы / ИИ',
       '🌆 Будущее / киберпанк',
       '🔥 Экшен',
-      'Война',
-      'Криминал',
+      '🪖 Война',
+      '👊🏻 Криминал',
       '🧠 Глубокий смысл',
       '🌿 Природная атмосфера',
       '🏡 Уют',
@@ -81,14 +148,14 @@ const QUIZ_STEPS = [
     maxSelections: 2,
   },
   {
-    question: 'Есть фильм, который хотел бы типа того?',
+    question: 'Можете написать о чем примерно должен быть фильм?',
     key: 'similarTo' as keyof QuizAnswers,
     optional: true,
     input: true, // This is an input field
   },
   {
-    question: 'Формат',
-    options: ['Фильм', 'Сериал', 'Оба'],
+    question: 'Хочешь фильм, сериал или мультфильм варианта?',
+    options: ['Фильм', 'Сериал', 'Мультфильм', 'Не важно'],
     key: 'format' as keyof QuizAnswers,
   },
 ];
@@ -98,6 +165,7 @@ const QUIZ_STATE_KEY = 'pending_quiz_state';
 export default function QuizScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const segments = useSegments();
   const { token } = useAuthStore();
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<QuizAnswers>({
@@ -106,6 +174,10 @@ export default function QuizScreen() {
   });
   const [loading, setLoading] = useState(false);
   const [similarToInput, setSimilarToInput] = useState('');
+  const [customTagInput, setCustomTagInput] = useState('');
+  const scrollViewRef = useRef<ScrollView>(null);
+  const customTagInputRef = useRef<View>(null);
+  const previousSegmentRef = useRef<string | null>(null);
 
   // Restore quiz state if coming back from auth
   useEffect(() => {
@@ -129,10 +201,47 @@ export default function QuizScreen() {
     restoreQuizState();
   }, []);
 
+  // Reset loading state when component mounts or when navigating back from results
+  useEffect(() => {
+    // Reset loading state on mount
+    setLoading(false);
+  }, []);
+
+  // Monitor segment changes to detect navigation back from results
+  useEffect(() => {
+    const currentSegment = segments[0] || '';
+    const previousSegment = previousSegmentRef.current;
+    
+    // If we're on quiz screen and were previously on results, reset loading
+    if (currentSegment === 'quiz' && previousSegment === 'results') {
+      setLoading(false);
+    }
+    
+    previousSegmentRef.current = currentSegment;
+  }, [segments]);
+
+  const getAvailableTags = () => {
+    if (answers.moods.length === 0) {
+      return QUIZ_STEPS[2].options || [];
+    }
+    const availableTags = answers.moods.flatMap((mood) => moodToTagsMap[mood] || []);
+    const uniqueTags = [...new Set(availableTags)];
+    
+    // Add custom tags that are not in the predefined list
+    const customTags = answers.tags.filter(tag => 
+      !QUIZ_STEPS[2].options?.includes(tag) && 
+      !uniqueTags.includes(tag)
+    );
+    
+    return [...uniqueTags, ...customTags];
+  };
+
   const currentQuestion = QUIZ_STEPS[currentStep];
   const progress = ((currentStep + 1) / QUIZ_STEPS.length) * 100;
 
   const handleBack = () => {
+    // Reset loading state when navigating back
+    setLoading(false);
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1);
     } else {
@@ -141,25 +250,44 @@ export default function QuizScreen() {
   };
 
   const handleAnswer = (option: string) => {
+    const isMoodQuestion = currentQuestion.key === 'moods';
+
     if (currentQuestion.multiple) {
       const currentAnswers = (answers[currentQuestion.key] as string[]) || [];
       const isSelected = currentAnswers.includes(option);
+      let newAnswersList;
 
       if (isSelected) {
         // Deselect
-        const newAnswers = currentAnswers.filter((a) => a !== option);
-        setAnswers({ ...answers, [currentQuestion.key]: newAnswers });
+        newAnswersList = currentAnswers.filter((a) => a !== option);
       } else {
         // Select (if under max)
         if (
           currentAnswers.length < (currentQuestion.maxSelections || 2)
         ) {
-          setAnswers({
-            ...answers,
-            [currentQuestion.key]: [...currentAnswers, option],
-          });
+          newAnswersList = [...currentAnswers, option];
+        } else {
+          newAnswersList = currentAnswers;
         }
       }
+      
+      if (isMoodQuestion) {
+        // If moods change, reset tags but keep custom tags
+        const availableTags = newAnswersList.flatMap(mood => moodToTagsMap[mood] || []);
+        const allPredefinedTags = QUIZ_STEPS[2].options || [];
+        // Keep tags that are either in available tags or are custom (not in predefined list)
+        const filteredTags = answers.tags.filter(tag => 
+          availableTags.includes(tag) || !allPredefinedTags.includes(tag)
+        );
+        setAnswers({
+          ...answers,
+          [currentQuestion.key]: newAnswersList,
+          tags: filteredTags,
+        });
+      } else {
+         setAnswers({ ...answers, [currentQuestion.key]: newAnswersList });
+      }
+
     } else {
       setAnswers({ ...answers, [currentQuestion.key]: option });
     }
@@ -219,15 +347,21 @@ export default function QuizScreen() {
       return;
     }
 
+    // Show loading screen on Quiz screen before making API call
     setLoading(true);
     try {
       console.log('Submitting quiz with answers:', answers);
+      // Get language preference
+      const language = useLanguageStore.getState().language;
+      const languageCode = language === 'ru' ? 'ru-RU' : 'en-US';
+      
       const response = await recommendationsAPI.getRecommendations({
         context: answers.context || 'Один',
         moods: answers.moods,
         tags: answers.tags,
         similarTo: answers.similarTo,
-        format: answers.format || 'Оба',
+        format: answers.format || 'Не важно',
+        language: languageCode,
       });
 
       console.log('Recommendations received:', response);
@@ -236,6 +370,7 @@ export default function QuizScreen() {
         throw new Error('No recommendations received');
       }
 
+      // Navigate only after API call is complete
       router.push({
         pathname: '/results',
         params: { 
@@ -245,7 +380,7 @@ export default function QuizScreen() {
             moods: answers.moods,
             tags: answers.tags,
             similarTo: answers.similarTo,
-            format: answers.format || 'Оба',
+            format: answers.format || 'Не важно',
           }),
         },
       });
@@ -306,10 +441,18 @@ export default function QuizScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoidingView}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
       >
+        <ScrollView
+          ref={scrollViewRef}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentInsetAdjustmentBehavior="automatic"
+        >
         <Text style={styles.question}>{currentQuestion.question}</Text>
         {currentQuestion.optional && !currentQuestion.input && (
           <Text style={styles.optionalText}>(необязательно)</Text>
@@ -320,7 +463,7 @@ export default function QuizScreen() {
             <StyledInput
               value={similarToInput}
               onChangeText={setSimilarToInput}
-              placeholder="Введите название фильма"
+              placeholder="про криминальные разборки в Корее..."
               autoCapitalize="words"
             />
             <Pressable
@@ -332,7 +475,7 @@ export default function QuizScreen() {
           </View>
         ) : (
           <View style={styles.optionsContainer}>
-            {currentQuestion.options?.map((option) => (
+            {(currentQuestion.key === 'tags' ? getAvailableTags() : currentQuestion.options)?.map((option) => (
               <Pressable
                 key={option}
                 onPress={() => handleAnswer(option)}
@@ -351,6 +494,69 @@ export default function QuizScreen() {
                 </Text>
               </Pressable>
             ))}
+            
+            {/* Custom tag input for Question 3 */}
+            {currentQuestion.key === 'tags' && (
+              <View 
+                ref={customTagInputRef}
+                style={styles.customTagContainer}
+              >
+                <Text style={styles.customTagLabel}>Или добавьте свой вариант:</Text>
+                <View style={styles.customTagInputRow}>
+                  <View style={styles.customTagInputWrapper}>
+                    <StyledInput
+                      value={customTagInput}
+                      onChangeText={setCustomTagInput}
+                      placeholder="Введите свой тег..."
+                      autoCapitalize="words"
+                      onFocus={() => {
+                        // Scroll to bottom when input is focused to show it above keyboard
+                        setTimeout(() => {
+                          scrollViewRef.current?.scrollToEnd({ animated: true });
+                        }, 100);
+                      }}
+                    />
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      if (customTagInput.trim() && 
+                          (answers.tags.length < (currentQuestion.maxSelections || 2))) {
+                        const customTag = customTagInput.trim();
+                        const currentTags = answers.tags || [];
+                        if (!currentTags.includes(customTag)) {
+                          setAnswers({
+                            ...answers,
+                            tags: [...currentTags, customTag],
+                          });
+                          setCustomTagInput('');
+                        }
+                      }
+                    }}
+                    disabled={
+                      !customTagInput.trim() || 
+                      (answers.tags.length >= (currentQuestion.maxSelections || 2))
+                    }
+                    style={[
+                      styles.addCustomTagButton,
+                      (!customTagInput.trim() || 
+                       answers.tags.length >= (currentQuestion.maxSelections || 2)) && 
+                      styles.addCustomTagButtonDisabled
+                    ]}
+                  >
+                    <Ionicons 
+                      name="add" 
+                      size={20} 
+                      color={
+                        (!customTagInput.trim() || 
+                         answers.tags.length >= (currentQuestion.maxSelections || 2))
+                          ? theme.colors.textSecondary 
+                          : theme.colors.primary
+                      } 
+                    />
+                  </Pressable>
+                </View>
+              </View>
+            )}
           </View>
         )}
 
@@ -361,7 +567,8 @@ export default function QuizScreen() {
             {currentQuestion.maxSelections}
           </Text>
         )}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <View style={styles.footer}>
         <Pressable
@@ -421,6 +628,10 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     padding: theme.spacing.lg,
+    paddingBottom: theme.spacing.xxl,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
   },
   question: {
     fontSize: theme.fontSize.xl,
@@ -485,7 +696,7 @@ const styles = StyleSheet.create({
     borderTopColor: theme.colors.border,
   },
   nextButton: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.primarySoft,
     borderRadius: theme.borderRadius.md,
     paddingVertical: theme.spacing.md,
     paddingHorizontal: theme.spacing.xl,
@@ -508,5 +719,38 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
     marginTop: theme.spacing.md,
+  },
+  customTagContainer: {
+    marginTop: theme.spacing.lg,
+    paddingTop: theme.spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  customTagLabel: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    marginBottom: theme.spacing.sm,
+  },
+  customTagInputRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    alignItems: 'center',
+  },
+  customTagInputWrapper: {
+    flex: 1,
+  },
+  addCustomTagButton: {
+    width: 44,
+    height: 44,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.backgroundDark,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addCustomTagButtonDisabled: {
+    borderColor: theme.colors.border,
+    opacity: 0.5,
   },
 });

@@ -3,10 +3,14 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   Pressable,
   ScrollView,
+  ImageStyle,
 } from 'react-native';
+import { Image } from 'expo-image';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { TrailerModal } from './TrailerModal';
 
@@ -18,6 +22,9 @@ interface Movie {
   genres?: string[];
   releaseYear?: string;
   trailerKey?: string;
+  overview?: string;
+  country?: string;
+  imdbRating?: number;
 }
 
 interface MovieCardProps {
@@ -27,8 +34,7 @@ interface MovieCardProps {
   initialIsNotInterested?: boolean;
   initialIsInWatchlist?: boolean;
   onWatchTrailer?: () => void;
-  onAddToWatchlist?: () => void | Promise<void>;
-  onRemoveFromWatchlist?: () => void | Promise<void>;
+  onToggleWatchlist?: () => Promise<boolean>;
   onToggleWatched?: () => void | Promise<boolean>;
   onToggleNotInterested?: () => void | Promise<boolean>;
   onRemove?: () => void;
@@ -41,8 +47,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({
   initialIsNotInterested = false,
   initialIsInWatchlist = false,
   onWatchTrailer,
-  onAddToWatchlist,
-  onRemoveFromWatchlist,
+  onToggleWatchlist,
   onToggleWatched,
   onToggleNotInterested,
   onRemove,
@@ -67,7 +72,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({
     : `https://image.tmdb.org/t/p/w500${movie.posterPath}`;
 
   const handleWatchlistToggle = async () => {
-    if (isToggling) return; // Prevent multiple simultaneous toggles
+    if (isToggling || !onToggleWatchlist) return; // Prevent multiple simultaneous toggles
     
     setIsToggling(true);
     const previousState = isInWatchlist;
@@ -76,28 +81,13 @@ export const MovieCard: React.FC<MovieCardProps> = ({
     setIsInWatchlist(!isInWatchlist);
     
     try {
-      if (!previousState) {
-        // Adding to watchlist
-        if (onAddToWatchlist) {
-          await onAddToWatchlist();
-        }
-      } else {
-        // Removing from watchlist
-        if (onRemoveFromWatchlist) {
-          await onRemoveFromWatchlist();
-        }
-      }
+      const isAdded = await onToggleWatchlist();
+      // Update state based on actual result from server
+      setIsInWatchlist(isAdded);
     } catch (error: any) {
-      // Revert on error, but handle 409 (already in watchlist) gracefully
-      if (error.response?.status === 409) {
-        // Already in watchlist - just keep the state as true
-        setIsInWatchlist(true);
-        console.log('Movie already in watchlist');
-      } else {
-        // Revert on other errors
-        setIsInWatchlist(previousState);
-        console.error('Error toggling watchlist:', error);
-      }
+      // Revert on error
+      setIsInWatchlist(previousState);
+      console.error('Error toggling watchlist:', error);
     } finally {
       setIsToggling(false);
     }
@@ -157,14 +147,66 @@ export const MovieCard: React.FC<MovieCardProps> = ({
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <View style={styles.posterContainer}>
-        <Image source={{ uri: posterUrl }} style={styles.poster} />
+      <View style={styles.posterSectionContainer}>
+        {/* Full-width blurred background effect */}
+        <View style={styles.posterBackgroundContainer}>
+          <Image 
+            source={{ uri: posterUrl }} 
+            style={styles.posterBackground}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+          />
+          <BlurView
+            intensity={80}
+            tint="dark"
+            style={styles.blurOverlay}
+          />
+          <LinearGradient
+            colors={[
+              'rgba(0, 0, 0, 0.1)', 
+              'rgba(0, 0, 0, 0.3)', 
+              'rgba(0, 0, 0, 0.6)',
+              'rgba(0, 0, 0, 0.85)'
+            ]}
+            style={styles.posterGradientOverlay}
+          />
+        </View>
+        
+        {/* Centered poster with shadow */}
+        <View style={styles.posterContainer}>
+          <View style={styles.posterWrapper}>
+            <Image 
+              source={{ uri: posterUrl }} 
+              style={styles.poster}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={200}
+            />
+          </View>
+        </View>
       </View>
 
       <Text style={styles.title}>{movie.title}</Text>
-      {movie.releaseYear && (
-        <Text style={styles.year}>{movie.releaseYear}</Text>
-      )}
+      <View style={styles.metaRow}>
+        {movie.releaseYear && (
+          <Text style={styles.year}>{movie.releaseYear}</Text>
+        )}
+        {movie.country && (
+          <>
+            {movie.releaseYear && <Text style={styles.metaSeparator}> | </Text>}
+            <Text style={styles.country}>🌍 {movie.country}</Text>
+          </>
+        )}
+        {movie.imdbRating && (
+          <>
+            {(movie.releaseYear || movie.country) && <Text style={styles.metaSeparator}> | </Text>}
+            <View style={styles.imdbContainer}>
+              <Text style={styles.imdbText}>IMDb</Text>
+              <Text style={styles.imdbRating}>{movie.imdbRating.toFixed(1)}</Text>
+            </View>
+          </>
+        )}
+      </View>
 
       <View style={styles.tagsContainer}>
         {movie.genres?.slice(0, 3).map((genre, index) => (
@@ -174,69 +216,100 @@ export const MovieCard: React.FC<MovieCardProps> = ({
         ))}
       </View>
 
-      <View style={styles.actionsRow}>
-        {movie.trailerKey && (
-          <Pressable 
-            style={styles.actionButton} 
-            onPress={() => setShowTrailer(true)}
-          >
-            <Text style={styles.actionText}>▶ Смотреть трейлер</Text>
-          </Pressable>
+      <View style={styles.trailerButtonContainer}>
+        {movie.trailerKey ? (
+          <>
+            <Pressable 
+              style={styles.trailerButton} 
+              onPress={() => setShowTrailer(true)}
+            >
+              <View style={styles.trailerButtonContent}>
+                <View style={styles.playButtonCircle}>
+                  <Ionicons name="play" size={16} color="#000000" />
+                </View>
+                <Text style={styles.trailerButtonText}>Смотреть трейлер</Text>
+              </View>
+            </Pressable>
+            <TrailerModal
+              visible={showTrailer}
+              trailerKey={movie.trailerKey}
+              onClose={() => setShowTrailer(false)}
+            />
+          </>
+        ) : (
+          <View style={styles.noTrailerContainer}>
+            <Ionicons 
+              name="videocam-off-outline" 
+              size={24} 
+              color={theme.colors.textSecondary} 
+            />
+            <Text style={styles.noTrailerText}>
+              Трейлер недоступен
+            </Text>
+            <Text style={styles.noTrailerSubtext}>
+              Для этого фильма трейлер не найден
+            </Text>
+          </View>
         )}
-        {/* Placeholder buttons for streaming services */}
-        <Pressable style={styles.actionButton}>
-          <Text style={styles.actionText}>N Netflix</Text>
-        </Pressable>
       </View>
 
-      {movie.trailerKey && (
-        <TrailerModal
-          visible={showTrailer}
-          trailerKey={movie.trailerKey}
-          onClose={() => setShowTrailer(false)}
-        />
-      )}
-
-      <View style={styles.whySection}>
-        <Text style={styles.whyTitle}>Почему этот фильм</Text>
-        <Text style={styles.whyText}>
-          {movie.reason ||
-            'Этот фильм идеально подходит под ваши предпочтения. Он сочетает в себе визуальную красоту, захватывающий сюжет и глубокую философию.'}
-        </Text>
-      </View>
-
-      <View style={styles.bottomActions}>
+      <View style={styles.actionIconsRow}>
         {historyId && (
           <Pressable
-            style={[styles.toggleButton, isWatched && styles.toggleButtonActive]}
+            style={styles.actionIconButton}
             onPress={handleToggleWatched}
             disabled={isTogglingWatched}
           >
-            <Text style={[styles.toggleButtonText, isWatched && styles.toggleButtonTextActive]}>
-              {isWatched ? '✓ Уже посмотрено' : 'Уже посмотрено'}
+            <Ionicons 
+              name={isWatched ? "checkmark-circle" : "checkmark-circle-outline"} 
+              size={24} 
+              color={isWatched ? theme.colors.primary : theme.colors.textSecondary} 
+            />
+            <Text style={[styles.actionIconText, isWatched && styles.actionIconTextActive]}>
+              Уже посмотрено
             </Text>
           </Pressable>
         )}
+
         <Pressable
-          style={[styles.toggleButton, isInWatchlist && styles.toggleButtonActive]}
+          style={styles.actionIconButton}
           onPress={handleWatchlistToggle}
           disabled={isToggling}
         >
-          <Text style={[styles.toggleButtonText, isInWatchlist && styles.toggleButtonTextActive]}>
-            {isInWatchlist ? '❤ В избранное' : '♡ В избранное'}
+          <Ionicons 
+            name={isInWatchlist ? "bookmark" : "bookmark-outline"} 
+            size={24} 
+            color={isInWatchlist ? theme.colors.primary : theme.colors.textSecondary} 
+          />
+          <Text style={[styles.actionIconText, isInWatchlist && styles.actionIconTextActive]}>
+            Буду смотреть
           </Text>
         </Pressable>
+
         {historyId && (
           <Pressable
-            style={[styles.notInterestedButton, isNotInterested && styles.notInterestedButtonActive]}
+            style={styles.actionIconButton}
             onPress={handleToggleNotInterested}
             disabled={isTogglingNotInterested}
           >
-            <Text style={[styles.notInterestedButtonText, isNotInterested && styles.notInterestedButtonTextActive]}>
-              {isNotInterested ? '✕ Не интересно' : '✕ Не интересно'}
+            <Ionicons 
+              name={isNotInterested ? "close-circle" : "close-circle-outline"} 
+              size={24} 
+              color={isNotInterested ? theme.colors.error : theme.colors.textSecondary} 
+            />
+            <Text style={[styles.actionIconText, isNotInterested && styles.actionIconTextError]}>
+              Не интересно
             </Text>
           </Pressable>
         )}
+      </View>
+
+      <View style={styles.whySection}>
+        <Text style={styles.whyTitle}>О фильме</Text>
+        <Text style={styles.whyText}>
+          {movie.overview ||
+            'Описание фильма недоступно.'}
+        </Text>
       </View>
     </ScrollView>
   );
@@ -247,19 +320,67 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: theme.spacing.md,
   },
+  posterSectionContainer: {
+    width: '100%',
+    marginBottom: theme.spacing.md,
+    position: 'relative',
+    minHeight: 400,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  posterBackgroundContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: theme.borderRadius.lg,
+    overflow: 'hidden',
+    zIndex: 0,
+  },
+  posterBackground: {
+    width: '100%',
+    height: '100%',
+  },
+  blurOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  posterGradientOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   posterContainer: {
     width: '50%',
-    alignSelf: 'center',
     aspectRatio: 2 / 3,
-    marginBottom: theme.spacing.md,
+    maxHeight: 300,
+    zIndex: 1,
+    position: 'relative',
+  },
+  posterWrapper: {
+    width: '100%',
+    height: '100%',
     borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
-    maxHeight: 300,
+    shadowColor: '#000000',
+    shadowOffset: {
+      width: 0,
+      height: 12,
+    },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 15,
+    backgroundColor: 'transparent',
   },
   poster: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
   },
   title: {
     color: theme.colors.text,
@@ -267,10 +388,40 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: theme.spacing.xs,
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: theme.spacing.sm,
+    flexWrap: 'wrap',
+  },
   year: {
     color: theme.colors.textSecondary,
     fontSize: theme.fontSize.md,
-    marginBottom: theme.spacing.sm,
+  },
+  metaSeparator: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.md,
+    marginHorizontal: theme.spacing.xs,
+  },
+  country: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.md,
+  },
+  imdbContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  imdbText: {
+    color: '#F5C518',
+    fontSize: theme.fontSize.sm,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  imdbRating: {
+    color: theme.colors.primary,
+    fontSize: theme.fontSize.md,
+    fontWeight: '600',
   },
   tagsContainer: {
     flexDirection: 'row',
@@ -290,21 +441,75 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     fontSize: theme.fontSize.xs,
   },
-  actionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+  trailerButtonContainer: {
     marginBottom: theme.spacing.lg,
-    gap: theme.spacing.sm,
-  },
-  actionButton: {
-    flex: 1,
-    paddingVertical: theme.spacing.sm,
     alignItems: 'center',
   },
-  actionText: {
-    color: theme.colors.primary,
-    fontSize: theme.fontSize.sm,
+  trailerButton: {
+    width: '100%',
+    maxWidth: 300,
+    borderRadius: theme.borderRadius.lg,
+    overflow: 'hidden',
+    backgroundColor: theme.colors.backgroundDark,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    shadowColor: theme.colors.primary,
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  noTrailerContainer: {
+    width: '100%',
+    maxWidth: 300,
+    paddingVertical: theme.spacing.lg,
+    paddingHorizontal: theme.spacing.md,
+    backgroundColor: theme.colors.backgroundDark,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.xs,
+  },
+  noTrailerText: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.md,
+    fontWeight: '500',
     textAlign: 'center',
+  },
+  noTrailerSubtext: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.xs,
+    textAlign: 'center',
+    opacity: 0.7,
+  },
+  trailerButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.lg,
+    gap: theme.spacing.md,
+  },
+  playButtonCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  trailerButtonText: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.md,
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
   whySection: {
     marginBottom: theme.spacing.lg,
@@ -320,56 +525,31 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
-  bottomActions: {
+  actionIconsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginTop: theme.spacing.md,
-    gap: theme.spacing.md,
+    alignItems: 'center',
     marginBottom: theme.spacing.xl,
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.lg,
   },
-  toggleButton: {
+  actionIconButton: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
     alignItems: 'center',
-    backgroundColor: theme.colors.backgroundDark,
-    borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    justifyContent: 'center',
+    gap: theme.spacing.xs,
   },
-  toggleButtonActive: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
-  toggleButtonText: {
+  actionIconText: {
     color: theme.colors.textSecondary,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
+    fontSize: theme.fontSize.xs,
+    textAlign: 'center',
+    marginTop: theme.spacing.xs,
   },
-  toggleButtonTextActive: {
-    color: '#000',
+  actionIconTextActive: {
+    color: theme.colors.primary,
   },
-  notInterestedButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    backgroundColor: theme.colors.backgroundDark,
-    borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  notInterestedButtonActive: {
-    backgroundColor: '#ff4444',
-    borderColor: '#ff4444',
-  },
-  notInterestedButtonText: {
-    color: theme.colors.textSecondary,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '600',
-  },
-  notInterestedButtonTextActive: {
-    color: '#fff',
+  actionIconTextError: {
+    color: theme.colors.error,
   },
 });
 

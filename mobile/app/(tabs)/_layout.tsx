@@ -13,9 +13,16 @@ export default function TabsLayout() {
           backgroundColor: theme.colors.backgroundDark,
           borderTopColor: theme.colors.border,
           borderTopWidth: 1,
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
         },
         // Set background color to prevent white flash
-        contentStyle: { backgroundColor: theme.colors.background },
+        contentStyle: { 
+          backgroundColor: theme.colors.background,
+          paddingBottom: 60, // Add padding to prevent content from being hidden behind fixed tab bar
+        },
       }}
     >
       <Tabs.Screen

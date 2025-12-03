@@ -26,7 +26,19 @@ const ErrorFallback = ({ trailerKey, onClose }: { trailerKey: string; onClose: (
   const handleOpenYouTube = async () => {
     const youtubeUrl = `https://www.youtube.com/watch?v=${trailerKey}`;
     try {
-      await Linking.openURL(youtubeUrl);
+      const canOpen = await Linking.canOpenURL(youtubeUrl);
+      if (canOpen) {
+        await Linking.openURL(youtubeUrl);
+      } else {
+        console.warn('Cannot open YouTube URL');
+        // Fallback: try with mobile YouTube app
+        const mobileUrl = `vnd.youtube:${trailerKey}`;
+        try {
+          await Linking.openURL(mobileUrl);
+        } catch (mobileError) {
+          console.error('Error opening YouTube app:', mobileError);
+        }
+      }
     } catch (error) {
       console.error('Error opening YouTube:', error);
     }
@@ -38,9 +50,14 @@ const ErrorFallback = ({ trailerKey, onClose }: { trailerKey: string; onClose: (
       <Ionicons name="alert-circle" size={48} color={theme.colors.textSecondary} />
       <Text style={styles.errorTitle}>Видео недоступно для встраивания</Text>
       <Text style={styles.errorText}>
-        Владелец ограничил воспроизведение этого трейлера в других приложениях.
+        Владелец ограничил воспроизведение этого трейлера в других приложениях.{'\n'}
+        Вы можете посмотреть его в приложении YouTube.
       </Text>
-      <Pressable style={styles.youtubeButton} onPress={handleOpenYouTube}>
+      <Pressable 
+        style={styles.youtubeButton} 
+        onPress={handleOpenYouTube}
+        android_ripple={{ color: 'rgba(255, 255, 255, 0.2)' }}
+      >
         <Ionicons name="logo-youtube" size={20} color="#fff" />
         <Text style={styles.youtubeButtonText}>Смотреть на YouTube</Text>
       </Pressable>
@@ -64,9 +81,26 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({
     }
   }, [visible]);
 
-  // This function is called by the library if an error occurs (like 153)
+  // This function is called by the library if an error occurs (like 153, embed_not_allowed)
   const onError = useCallback((error: any) => {
-    console.error('YouTube Player Error:', error);
+    console.warn('YouTube Player Error:', error);
+    // Handle specific error types
+    const errorString = String(error).toLowerCase();
+    const errorCode = typeof error === 'object' ? error?.code : null;
+    
+    // Check for embed restrictions or other playback errors
+    if (
+      errorString.includes('embed_not_allowed') ||
+      errorString.includes('embedding') ||
+      errorString.includes('not available') ||
+      errorCode === 150 || // Video not available for embedding
+      errorCode === 100 || // Video not found
+      errorCode === 101 || // Video not available in this country
+      errorCode === 150    // Video not available for embedding
+    ) {
+      console.warn('Video embedding restricted, showing fallback UI');
+    }
+    
     setHasError(true);
     setIsLoading(false);
   }, []);
@@ -112,6 +146,18 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({
                 onError={onError}
                 onReady={onReady}
                 onChangeState={onStateChange}
+                webViewProps={{
+                  // Add webView props to handle errors better
+                  onError: (syntheticEvent: any) => {
+                    const { nativeEvent } = syntheticEvent;
+                    console.warn('WebView error:', nativeEvent);
+                    if (nativeEvent?.description?.includes('embed') || 
+                        nativeEvent?.description?.includes('not allowed')) {
+                      setHasError(true);
+                      setIsLoading(false);
+                    }
+                  },
+                }}
               />
             </View>
           )}
