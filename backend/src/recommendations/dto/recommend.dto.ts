@@ -17,7 +17,8 @@ export enum ContextEnum {
 export enum FormatEnum {
   MOVIE = 'Фильм',
   SERIES = 'Сериал',
-  BOTH = 'Оба',
+  CARTOON = 'Мультфильм',
+  ANY = 'Не важно',
 }
 
 export class RecommendDto {
@@ -45,5 +46,9 @@ export class RecommendDto {
   @IsArray()
   @IsString({ each: true })
   excludeIds?: string[]; // The TMDb movie IDs to exclude
+
+  @IsOptional()
+  @IsString()
+  language?: string; // Language code (e.g., 'ru-RU', 'en-US'), defaults to 'ru-RU'
 }
 

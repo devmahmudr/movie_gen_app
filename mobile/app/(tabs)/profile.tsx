@@ -5,15 +5,19 @@ import {
   StyleSheet,
   SafeAreaView,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { StyledButton } from '../../components/StyledButton';
 import { useAuthStore } from '../../store/authStore';
+import { useLanguageStore } from '../../store/languageStore';
 import { userAPI } from '../../services/apiClient';
 import { theme } from '../../constants/theme';
 
 export default function ProfileScreen() {
   const { logout, token } = useAuthStore();
+  const { language, loadLanguage } = useLanguageStore();
   const router = useRouter();
   const [user, setUser] = useState<{ id: string; email: string } | null>(
     null
@@ -21,6 +25,7 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    loadLanguage();
     loadProfile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -58,6 +63,35 @@ export default function ProfileScreen() {
         <View style={styles.profileSection}>
           <Text style={styles.label}>Email</Text>
           <Text style={styles.email}>{user?.email || 'Не загружено'}</Text>
+        </View>
+
+        <View style={styles.profileSection}>
+          <Text style={styles.label}>Язык интерфейса</Text>
+          <View style={styles.languageSelector}>
+            <Pressable
+              style={[
+                styles.languageOption,
+                language === 'ru' && styles.languageOptionActive,
+              ]}
+              onPress={() => useLanguageStore.getState().setLanguage('ru')}
+            >
+              <Text
+                style={[
+                  styles.languageOptionText,
+                  language === 'ru' && styles.languageOptionTextActive,
+                ]}
+              >
+                Русский
+              </Text>
+              {language === 'ru' && (
+                <Ionicons
+                  name="checkmark"
+                  size={20}
+                  color={theme.colors.primary}
+                />
+              )}
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.buttonContainer}>
@@ -100,6 +134,32 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     marginTop: theme.spacing.xl,
+  },
+  languageSelector: {
+    marginTop: theme.spacing.sm,
+  },
+  languageOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    backgroundColor: theme.colors.background,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  languageOptionActive: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.backgroundDark,
+  },
+  languageOptionText: {
+    fontSize: theme.fontSize.md,
+    color: theme.colors.textSecondary,
+  },
+  languageOptionTextActive: {
+    color: theme.colors.primary,
+    fontWeight: '600',
   },
 });
 

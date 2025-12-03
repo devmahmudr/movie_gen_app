@@ -138,6 +138,7 @@ export const recommendationsAPI = {
     similarTo?: string;
     format: string;
     excludeIds?: string[];
+    language?: string;
   }) => {
     // Use a longer timeout for recommendations since it involves OpenAI + TMDb calls
     const response = await apiClient.post('/recommend', data, {
@@ -145,8 +146,9 @@ export const recommendationsAPI = {
     });
     return response.data;
   },
-  getMovieDetails: async (movieId: string) => {
-    const response = await apiClient.get(`/recommend/movie/${movieId}`);
+  getMovieDetails: async (movieId: string, language?: string) => {
+    const params = language ? { language } : {};
+    const response = await apiClient.get(`/recommend/movie/${movieId}`, { params });
     return response.data;
   },
 };
@@ -185,6 +187,14 @@ export const watchlistAPI = {
   },
   removeByMovieId: async (movieId: string) => {
     const response = await apiClient.delete(`/watchlist/movie/${movieId}`);
+    return response.data;
+  },
+  toggle: async (data: {
+    movieId: string;
+    title: string;
+    posterPath?: string;
+  }) => {
+    const response = await apiClient.post('/watchlist/toggle', data);
     return response.data;
   },
 };

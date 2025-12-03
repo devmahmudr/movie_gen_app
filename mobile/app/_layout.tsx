@@ -2,16 +2,19 @@ import { useEffect } from 'react';
 import { useRouter, useSegments } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useAuthStore } from '../store/authStore';
+import { useLanguageStore } from '../store/languageStore';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { theme } from '../constants/theme';
 
 export default function RootLayout() {
   const { token, isLoading, loadToken } = useAuthStore();
+  const { loadLanguage } = useLanguageStore();
   const router = useRouter();
   const segments = useSegments();
 
   useEffect(() => {
     loadToken();
+    loadLanguage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -52,9 +55,7 @@ export default function RootLayout() {
       <Stack
         screenOptions={{
           headerShown: false,
-          // 1. Use a native animation. 'slide_from_right' is the standard for a professional feel.
           animation: 'slide_from_right',
-          // 2. Use a natural duration. Native animations feel best around 250ms.
           // A smooth 250ms animation is perceived as faster than a flickering 100ms one.
           animationDuration: 250,
           // Set background color to prevent white flash during transitions
@@ -98,7 +99,10 @@ export default function RootLayout() {
         <Stack.Screen 
           name="results" 
           options={{
-            contentStyle: { backgroundColor: theme.colors.background },
+            contentStyle: { 
+              backgroundColor: theme.colors.background,
+              paddingBottom: 0, // No padding needed as results doesn't have tab bar
+            },
           }}
         />
 

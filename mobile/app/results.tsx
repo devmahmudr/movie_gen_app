@@ -5,15 +5,16 @@ import {
   StyleSheet,
   SafeAreaView,
   FlatList,
-  Dimensions,
   Pressable,
   ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { MovieCard } from '../components/MovieCard';
+import { BottomNavbar } from '../components/BottomNavbar';
 import { theme } from '../constants/theme';
 import { watchlistAPI, historyAPI, recommendationsAPI } from '../services/apiClient';
+import { useLanguageStore } from '../store/languageStore';
 
 interface Movie {
   movieId: string;
@@ -26,6 +27,9 @@ interface Movie {
   historyId?: string;
   isWatched?: boolean;
   isNotInterested?: boolean;
+  overview?: string;
+  country?: string;
+  imdbRating?: number;
 }
 
 interface LoadMoreButton {
@@ -42,12 +46,10 @@ interface QuizAnswers {
   format: string;
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ResultsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const [currentIndex, setCurrentIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
 
@@ -76,29 +78,6 @@ export default function ResultsScreen() {
   
   const quizAnswersRef = useRef<QuizAnswers | null>(getInitialQuizAnswers());
 
-  const handleScroll = (event: any) => {
-    const contentOffsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(contentOffsetX / SCREEN_WIDTH);
-    setCurrentIndex(index);
-  };
-
-  const goToPrevious = () => {
-    if (currentIndex > 0) {
-      const newIndex = currentIndex - 1;
-      flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
-      setCurrentIndex(newIndex);
-    }
-  };
-
-  const goToNext = () => {
-    // Allow scrolling to the Generate More button
-    const maxIndex = movies.length; // movies.length is the Generate More button
-    if (currentIndex < maxIndex) {
-      const newIndex = currentIndex + 1;
-      flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
-      setCurrentIndex(newIndex);
-    }
-  };
 
   const handleGenerateMore = async () => {
     if (!quizAnswersRef.current || isGeneratingMore) {
@@ -110,10 +89,15 @@ export default function ResultsScreen() {
       // Create excludeIds array from current movies
       const excludeIds = movies.map(movie => movie.movieId);
 
+      // Get language preference
+      const language = useLanguageStore.getState().language;
+      const languageCode = language === 'ru' ? 'ru-RU' : 'en-US';
+      
       // Create new recommendDto with excludeIds
       const newRecommendDto = {
         ...quizAnswersRef.current,
         excludeIds,
+        language: languageCode,
       };
 
       console.log('Generating more recommendations with excludeIds:', excludeIds);
@@ -123,48 +107,47 @@ export default function ResultsScreen() {
 
       if (newRecommendations && Array.isArray(newRecommendations) && newRecommendations.length > 0) {
         // Append new movies to existing list
-        setMovies(prevMovies => [...prevMovies, ...newRecommendations]);
-        
-        // Scroll to the first new movie
-        setTimeout(() => {
-          const newIndex = movies.length;
-          flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
-          setCurrentIndex(newIndex);
-        }, 100);
+        setMovies(prevMovies => {
+          const updated = [...prevMovies, ...newRecommendations];
+          // Scroll to the first new movie after state update
+          setTimeout(() => {
+            const newIndex = prevMovies.length;
+            flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
+          }, 100);
+          return updated;
+        });
       } else {
         console.error('No new recommendations received');
+        alert('Не удалось найти дополнительные фильмы. Попробуйте изменить предпочтения.');
       }
     } catch (error: any) {
       console.error('Error generating more recommendations:', error);
-      // You could show an error message to the user here
+      
+      // Show user-friendly error message
+      let errorMessage = 'Не удалось найти дополнительные фильмы. Попробуйте изменить предпочтения.';
+      if (error.response?.status === 404) {
+        errorMessage = 'Не удалось найти дополнительные фильмы с такими предпочтениями. Попробуйте изменить критерии поиска.';
+      } else if (error.response?.status === 500) {
+        errorMessage = 'Ошибка сервера при поиске фильмов. Попробуйте позже.';
+      }
+      
+      alert(errorMessage);
     } finally {
       setIsGeneratingMore(false);
     }
   };
 
-  const handleAddToWatchlist = async (movie: Movie) => {
+  const handleToggleWatchlist = async (movie: Movie) => {
     try {
-      await watchlistAPI.addToWatchlist({
+      const result = await watchlistAPI.toggle({
         movieId: movie.movieId,
         title: movie.title,
         posterPath: movie.posterPath,
       });
-      console.log(`Added to watchlist: ${movie.title}`);
+      console.log(`${result.isAdded ? 'Added to' : 'Removed from'} watchlist: ${movie.title}`);
+      return result.isAdded;
     } catch (error: any) {
-      console.error('Error adding to watchlist:', error);
-      if (error.response?.status === 409) {
-        console.log(`Already in watchlist: ${movie.title}`);
-      }
-      throw error; // Re-throw to let MovieCard handle the error
-    }
-  };
-
-  const handleRemoveFromWatchlist = async (movie: Movie) => {
-    try {
-      await watchlistAPI.removeByMovieId(movie.movieId);
-      console.log(`Removed from watchlist: ${movie.title}`);
-    } catch (error: any) {
-      console.error('Error removing from watchlist:', error);
+      console.error('Error toggling watchlist:', error);
       throw error; // Re-throw to let MovieCard handle the error
     }
   };
@@ -221,14 +204,15 @@ export default function ResultsScreen() {
     }
   };
 
-  const handleHome = () => {
-    router.replace('/(tabs)/home');
+  const handleBack = () => {
+    // Navigate back and ensure quiz screen resets its loading state
+    router.back();
   };
 
   // Create data array with Generate More button at the end
   const flatListData: FlatListItem[] = [...movies, { isLoadMoreButton: true }];
 
-  const renderItem = ({ item }: { item: FlatListItem }) => {
+  const renderItem = ({ item, index }: { item: FlatListItem; index: number }) => {
     // Check if this is the Generate More button
     if ('isLoadMoreButton' in item && item.isLoadMoreButton) {
       return (
@@ -262,6 +246,10 @@ export default function ResultsScreen() {
 
     // Render regular movie card
     const movie = item as Movie;
+    // Check if this is the last movie (before the Generate More button)
+    // The Generate More button is at index movies.length, so last movie is at movies.length - 1
+    const isLastMovie = index === movies.length - 1;
+    
     return (
       <View style={styles.movieContainer}>
         <MovieCard
@@ -269,12 +257,16 @@ export default function ResultsScreen() {
           historyId={movie.historyId}
           initialIsWatched={movie.isWatched || false}
           initialIsNotInterested={movie.isNotInterested || false}
-          onAddToWatchlist={() => handleAddToWatchlist(movie)}
-          onRemoveFromWatchlist={() => handleRemoveFromWatchlist(movie)}
+          initialIsInWatchlist={false} // Will be determined by toggle result
+          onToggleWatchlist={async () => {
+            const isAdded = await handleToggleWatchlist(movie);
+            return isAdded;
+          }}
           onToggleWatched={() => handleToggleWatched(movie)}
           onToggleNotInterested={() => handleToggleNotInterested(movie)}
           onRemove={() => handleRemove(movie)}
         />
+        {!isLastMovie && <View style={styles.divider} />}
       </View>
     );
   };
@@ -285,13 +277,14 @@ export default function ResultsScreen() {
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>Нет рекомендаций</Text>
           <Pressable
-            style={styles.homeButton}
-            onPress={handleHome}
+            style={styles.backButton}
+            onPress={handleBack}
           >
-            <Ionicons name="home" size={24} color={theme.colors.primary} />
-            <Text style={styles.homeButtonText}>На главную</Text>
+            <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
+            <Text style={styles.backButtonText}>Назад</Text>
           </Pressable>
         </View>
+        <BottomNavbar />
       </SafeAreaView>
     );
   }
@@ -302,10 +295,17 @@ export default function ResultsScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       <View style={styles.header}>
-        <Pressable onPress={handleHome} style={styles.homeButtonHeader}>
-          <Ionicons name="home" size={24} color={theme.colors.text} />
+        <Pressable onPress={handleBack} style={styles.backButtonHeader}>
+          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
         </Pressable>
-        <Text style={styles.title}>Топ-3 для тебя</Text>
+        <View style={styles.headerContent}>
+          <Text style={styles.title}>Топ-3 для тебя</Text>
+          {quizAnswersRef.current?.moods && quizAnswersRef.current.moods.length > 0 && (
+            <Text style={styles.moodInfo}>
+              Настроение: {quizAnswersRef.current.moods.join(' + ')}
+            </Text>
+          )}
+        </View>
         <View style={styles.placeholder} />
       </View>
 
@@ -321,16 +321,8 @@ export default function ResultsScreen() {
           const movie = item as Movie;
           return `movie-${index}-${movie.movieId || 'unknown'}`;
         }}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        getItemLayout={(data, index) => ({
-          length: SCREEN_WIDTH,
-          offset: SCREEN_WIDTH * index,
-          index,
-        })}
+        showsVerticalScrollIndicator={true}
+        contentContainerStyle={{ paddingBottom: 80 }}
         onScrollToIndexFailed={(info) => {
           // Fallback: scroll to offset if scrollToIndex fails
           const wait = new Promise(resolve => setTimeout(resolve, 500));
@@ -343,51 +335,7 @@ export default function ResultsScreen() {
         }}
       />
 
-      <View style={styles.pagination}>
-        <Pressable
-          style={[styles.arrowButton, currentIndex === 0 && styles.arrowButtonDisabled]}
-          onPress={goToPrevious}
-          disabled={currentIndex === 0}
-        >
-          <Ionicons
-            name="chevron-back"
-            size={24}
-            color={currentIndex === 0 ? theme.colors.border : theme.colors.primary}
-          />
-        </Pressable>
-        
-        <View style={styles.paginationDots}>
-          {movies.map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.paginationDot,
-                index === currentIndex && styles.paginationDotActive,
-              ]}
-            />
-          ))}
-          {/* Show a special dot for the Generate More button */}
-          <View
-            style={[
-              styles.paginationDot,
-              currentIndex === movies.length && styles.paginationDotActive,
-              currentIndex === movies.length && styles.paginationDotLoadMore,
-            ]}
-          />
-        </View>
-        
-        <Pressable
-          style={[styles.arrowButton, currentIndex === flatListData.length - 1 && styles.arrowButtonDisabled]}
-          onPress={goToNext}
-          disabled={currentIndex === flatListData.length - 1}
-        >
-          <Ionicons
-            name="chevron-forward"
-            size={24}
-            color={currentIndex === flatListData.length - 1 ? theme.colors.border : theme.colors.primary}
-          />
-        </Pressable>
-      </View>
+      <BottomNavbar />
     </SafeAreaView>
   );
 }
@@ -405,68 +353,37 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
-  homeButtonHeader: {
+  backButtonHeader: {
     padding: theme.spacing.sm,
+  },
+  headerContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     fontSize: theme.fontSize.xl,
     fontWeight: 'bold',
     color: theme.colors.text,
   },
+  moodInfo: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.textSecondary,
+    fontStyle: 'italic',
+    marginTop: theme.spacing.xs,
+  },
   placeholder: {
     width: 40,
   },
   movieContainer: {
-    width: SCREEN_WIDTH,
+    width: '100%',
   },
-  pagination: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: theme.spacing.lg,
-    paddingHorizontal: theme.spacing.md,
-    backgroundColor: theme.colors.backgroundDark,
-    marginHorizontal: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
-    borderRadius: theme.borderRadius.lg,
-    gap: theme.spacing.lg,
-  },
-  arrowButton: {
-    padding: theme.spacing.sm,
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.background,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  arrowButtonDisabled: {
-    opacity: 0.3,
-  },
-  paginationDots: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.md,
-  },
-  paginationDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  divider: {
+    height: 1,
     backgroundColor: theme.colors.border,
-    opacity: 0.5,
-  },
-  paginationDotActive: {
-    backgroundColor: theme.colors.primary,
-    width: 32,
-    height: 10,
-    borderRadius: 5,
-    opacity: 1,
-    shadowColor: theme.colors.primary,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    elevation: 5,
+    marginVertical: theme.spacing.lg,
+    marginHorizontal: theme.spacing.md,
+    opacity: 0.9,
   },
   emptyContainer: {
     flex: 1,
@@ -479,7 +396,7 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.lg,
     marginBottom: theme.spacing.lg,
   },
-  homeButton: {
+  backButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.sm,
@@ -487,13 +404,13 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.backgroundDark,
     borderRadius: theme.borderRadius.md,
   },
-  homeButtonText: {
+  backButtonText: {
     color: theme.colors.primary,
     fontSize: theme.fontSize.md,
   },
   generateMoreContainer: {
-    width: SCREEN_WIDTH,
-    flex: 1,
+    width: '100%',
+    minHeight: 400,
     justifyContent: 'center',
     alignItems: 'center',
     padding: theme.spacing.xl,
@@ -539,8 +456,5 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     marginTop: theme.spacing.md,
     fontSize: theme.fontSize.md,
-  },
-  paginationDotLoadMore: {
-    backgroundColor: theme.colors.secondary,
   },
 });

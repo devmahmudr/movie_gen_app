@@ -76,5 +76,31 @@ export class WatchlistService {
       await this.watchlistRepository.remove(watchlistItem);
     }
   }
+
+  async toggle(userId: string, addToWatchlistDto: AddToWatchlistDto): Promise<{ watchlistItem: Watchlist | null; isAdded: boolean }> {
+    // Check if movie is already in watchlist
+    const existing = await this.watchlistRepository.findOne({
+      where: {
+        userId,
+        movieId: addToWatchlistDto.movieId,
+      },
+    });
+
+    if (existing) {
+      // Remove from watchlist
+      await this.watchlistRepository.remove(existing);
+      return { watchlistItem: null, isAdded: false };
+    } else {
+      // Add to watchlist
+      const watchlistItem = this.watchlistRepository.create({
+        userId,
+        movieId: addToWatchlistDto.movieId,
+        title: addToWatchlistDto.title,
+        posterPath: addToWatchlistDto.posterPath,
+      });
+      const saved = await this.watchlistRepository.save(watchlistItem);
+      return { watchlistItem: saved, isAdded: true };
+    }
+  }
 }
 

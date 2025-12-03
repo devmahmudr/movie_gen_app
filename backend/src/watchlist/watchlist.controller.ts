@@ -38,5 +38,10 @@ export class WatchlistController {
     await this.watchlistService.removeByMovieId(movieId, req.user.id);
     return { message: 'Removed from watchlist' };
   }
+
+  @Post('toggle')
+  async toggle(@Request() req, @Body() addToWatchlistDto: AddToWatchlistDto) {
+    return this.watchlistService.toggle(req.user.id, addToWatchlistDto);
+  }
 }
 

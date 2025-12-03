@@ -6,6 +6,7 @@ export const theme = {
     textSecondary: '#CCCCCC',
     primary: '#00F5FF', // Neon teal
     primaryDark: '#00D4E6',
+    primarySoft: '#0099AA', // Softer, less intense shade for buttons
     secondary: '#FF00FF', // Neon magenta/purple
     secondaryDark: '#E600E6',
     border: '#333333',

@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { MovieCard } from '../components/MovieCard';
 import { theme } from '../constants/theme';
 import { watchlistAPI, historyAPI, recommendationsAPI } from '../services/apiClient';
+import { useLanguageStore } from '../store/languageStore';
 
 interface Movie {
   movieId: string;
@@ -50,7 +51,11 @@ export default function WatchlistDetailScreen() {
         return;
       }
 
-      const movieData = await recommendationsAPI.getMovieDetails(movieId);
+      // Get language preference
+      const language = useLanguageStore.getState().language;
+      const languageCode = language === 'ru' ? 'ru-RU' : 'en-US';
+      
+      const movieData = await recommendationsAPI.getMovieDetails(movieId, languageCode);
       setMovie(movieData);
       
       // Verify movie is in watchlist (it should be since we came from watchlist)
@@ -81,37 +86,24 @@ export default function WatchlistDetailScreen() {
     router.replace('/(tabs)/home');
   };
 
-  const handleAddToWatchlist = async (movie: Movie) => {
+  const handleToggleWatchlist = async (movie: Movie) => {
     try {
-      await watchlistAPI.addToWatchlist({
+      const result = await watchlistAPI.toggle({
         movieId: movie.movieId,
         title: movie.title,
         posterPath: movie.posterPath,
       });
-      console.log(`Added to watchlist: ${movie.title}`);
-      setIsInWatchlist(true);
-    } catch (error: any) {
-      console.error('Error adding to watchlist:', error);
-      if (error.response?.status === 409) {
-        // Already in watchlist - this is fine, just update state
-        console.log(`Already in watchlist: ${movie.title}`);
-        setIsInWatchlist(true);
-        // Don't throw error, just update state
-        return;
-      }
-      throw error;
-    }
-  };
-
-  const handleRemoveFromWatchlist = async (movie: Movie) => {
-    try {
-      await watchlistAPI.removeByMovieId(movie.movieId);
-      console.log(`Removed from watchlist: ${movie.title}`);
-      setIsInWatchlist(false);
+      console.log(`${result.isAdded ? 'Added to' : 'Removed from'} watchlist: ${movie.title}`);
+      setIsInWatchlist(result.isAdded);
+      
       // Navigate back to watchlist after removal
-      router.back();
+      if (!result.isAdded) {
+        router.back();
+      }
+      
+      return result.isAdded;
     } catch (error: any) {
-      console.error('Error removing from watchlist:', error);
+      console.error('Error toggling watchlist:', error);
       throw error;
     }
   };
@@ -199,8 +191,10 @@ export default function WatchlistDetailScreen() {
           initialIsWatched={movie.isWatched || false}
           initialIsNotInterested={movie.isNotInterested || false}
           initialIsInWatchlist={isInWatchlist}
-          onAddToWatchlist={() => handleAddToWatchlist(movie)}
-          onRemoveFromWatchlist={() => handleRemoveFromWatchlist(movie)}
+          onToggleWatchlist={async () => {
+            const isAdded = await handleToggleWatchlist(movie);
+            return isAdded;
+          }}
           onToggleWatched={() => handleToggleWatched(movie)}
           onToggleNotInterested={() => handleToggleNotInterested(movie)}
         />

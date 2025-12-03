@@ -10,6 +10,8 @@ interface StyledInputProps {
   keyboardType?: 'default' | 'email-address';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   error?: string;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 export const StyledInput: React.FC<StyledInputProps> = ({
@@ -20,6 +22,8 @@ export const StyledInput: React.FC<StyledInputProps> = ({
   keyboardType = 'default',
   autoCapitalize = 'none',
   error,
+  onFocus,
+  onBlur,
 }) => {
   return (
     <View style={styles.container}>
@@ -32,6 +36,8 @@ export const StyledInput: React.FC<StyledInputProps> = ({
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        onFocus={onFocus}
+        onBlur={onBlur}
       />
       {error && <Text style={styles.errorText}>{error}</Text>}
     </View>
