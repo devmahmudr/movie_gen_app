@@ -24,11 +24,23 @@ const getApiBaseUrl = (): string => {
     }
   } else {
     // Production mode - use environment variable or default
-    return process.env.EXPO_PUBLIC_API_URL || 'https://your-app.up.railway.app';
+    const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://your-app.up.railway.app';
+    // Ensure URL has https:// protocol
+    if (apiUrl && !apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+      return `https://${apiUrl}`;
+    }
+    return apiUrl;
   }
 };
 
-const API_BASE_URL = getApiBaseUrl();
+// Get API base URL and ensure it has protocol
+let API_BASE_URL = getApiBaseUrl();
+// Ensure URL has https:// protocol (fix for Railway URLs without protocol)
+if (API_BASE_URL && !API_BASE_URL.startsWith('http://') && !API_BASE_URL.startsWith('https://')) {
+  API_BASE_URL = `https://${API_BASE_URL}`;
+}
+console.log('API_BASE_URL', API_BASE_URL);
+
 
 // Log API URL in development for debugging
 if (__DEV__) {

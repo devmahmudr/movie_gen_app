@@ -27,8 +27,17 @@
       "expo-router"
     ],
     "extra": {
-      "apiUrl": "https://your-app.up.railway.app"
+      "apiUrl": "https://your-app.up.railway.app",
+      "router": {},
+      "eas": {
+        "projectId": "1d0e3bbd-6e43-46fb-9b3f-a9d10380a220"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/1d0e3bbd-6e43-46fb-9b3f-a9d10380a220"
     }
   }
 }
-

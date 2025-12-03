@@ -55,3 +55,6 @@ dist/
 build/
 *.tsbuildinfo
 
+DEPLOYMENT_GUIDE.md
+DEV_MODE_GUIDE.md
+
