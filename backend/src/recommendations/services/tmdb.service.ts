@@ -269,8 +269,8 @@ export class TMDbService {
           (v: any) =>
             v.site === 'YouTube' &&
             v.type === type,
-        );
-        
+      );
+
         if (video) {
           console.log(`[TMDb] Found unofficial ${type} (fallback) for movie ${movieId}: ${video.key}`);
           return video.key;

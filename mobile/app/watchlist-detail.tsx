@@ -98,7 +98,7 @@ export default function WatchlistDetailScreen() {
       
       // Navigate back to watchlist after removal
       if (!result.isAdded) {
-        router.back();
+      router.back();
       }
       
       return result.isAdded;

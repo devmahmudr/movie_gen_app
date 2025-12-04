@@ -39,13 +39,19 @@ let API_BASE_URL = getApiBaseUrl();
 if (API_BASE_URL && !API_BASE_URL.startsWith('http://') && !API_BASE_URL.startsWith('https://')) {
   API_BASE_URL = `https://${API_BASE_URL}`;
 }
-console.log('API_BASE_URL', API_BASE_URL);
 
-
-// Log API URL in development for debugging
-if (__DEV__) {
-  console.log('API Base URL:', API_BASE_URL);
+// Remove trailing slash if present
+if (API_BASE_URL.endsWith('/')) {
+  API_BASE_URL = API_BASE_URL.slice(0, -1);
 }
+
+// Always log API URL for debugging (helps diagnose production issues)
+console.log('🔗 API Configuration:', {
+  baseURL: API_BASE_URL,
+  envVar: process.env.EXPO_PUBLIC_API_URL || 'not set',
+  isDev: __DEV__,
+  platform: Platform.OS,
+});
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -73,34 +79,38 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    // Log error details in development
-    if (__DEV__) {
-      // Check for network/connection errors
-      const isNetworkError = 
-        !error.response && 
-        (error.code === 'ECONNREFUSED' || 
-         error.code === 'ENOTFOUND' || 
-         error.code === 'ETIMEDOUT' ||
-         error.message?.includes('Network Error') ||
-         error.message?.includes('network request failed'));
+    // Check for network/connection errors
+    const isNetworkError = 
+      !error.response && 
+      (error.code === 'ECONNREFUSED' || 
+       error.code === 'ENOTFOUND' || 
+       error.code === 'ETIMEDOUT' ||
+       error.code === 'ECONNABORTED' ||
+       error.message?.includes('Network Error') ||
+       error.message?.includes('network request failed') ||
+       error.message?.includes('timeout'));
 
-      if (isNetworkError) {
-        console.error('API Connection Error:', {
-          message: 'Cannot connect to backend server',
-          url: API_BASE_URL,
-          error: error.message,
-          code: error.code,
-          hint: Platform.OS === 'android' 
-            ? 'For Android emulator, using 10.0.2.2. For physical device, set EXPO_PUBLIC_API_URL to your computer IP (e.g., http://192.168.100.115:3000)'
-            : 'For iOS simulator, using localhost. For physical device, set EXPO_PUBLIC_API_URL to your computer IP (e.g., http://192.168.100.115:3000)',
-        });
-      } else {
-        console.error('API Error:', {
-          status: error.response?.status,
-          message: error.response?.data?.message || error.message,
-          url: error.config?.url,
-        });
-      }
+    // Always log connection errors (even in production) for debugging
+    if (isNetworkError) {
+      console.error('API Connection Error:', {
+        message: 'Cannot connect to backend server',
+        baseURL: API_BASE_URL,
+        fullURL: error.config?.url ? `${API_BASE_URL}${error.config.url}` : 'N/A',
+        error: error.message,
+        code: error.code,
+        platform: Platform.OS,
+        isDev: __DEV__,
+        hasEnvVar: !!process.env.EXPO_PUBLIC_API_URL,
+        envVarValue: process.env.EXPO_PUBLIC_API_URL || 'not set',
+      });
+    } else if (__DEV__) {
+      // Log other errors only in development
+      console.error('API Error:', {
+        status: error.response?.status,
+        message: error.response?.data?.message || error.message,
+        url: error.config?.url,
+        baseURL: API_BASE_URL,
+      });
     }
 
     if (error.response?.status === 401) {

@@ -62,7 +62,11 @@ export default function LoginScreen() {
          err.message?.includes('network request failed'));
       
       if (isNetworkError) {
-        setError('Не удалось подключиться к серверу. Проверьте подключение и настройки API. Для физического устройства используйте IP адрес компьютера.');
+        // More helpful error message based on environment
+        const errorMsg = __DEV__
+          ? 'Не удалось подключиться к серверу. Проверьте подключение и настройки API. Для физического устройства используйте IP адрес компьютера.'
+          : 'Не удалось подключиться к серверу. Проверьте подключение к интернету и повторите попытку.';
+        setError(errorMsg);
       } else if (err.response?.status === 401) {
         setError('Неверный email или пароль');
       } else {
