@@ -28,7 +28,7 @@ const ErrorFallback = ({ trailerKey, onClose }: { trailerKey: string; onClose: (
     try {
       const canOpen = await Linking.canOpenURL(youtubeUrl);
       if (canOpen) {
-        await Linking.openURL(youtubeUrl);
+      await Linking.openURL(youtubeUrl);
       } else {
         console.warn('Cannot open YouTube URL');
         // Fallback: try with mobile YouTube app

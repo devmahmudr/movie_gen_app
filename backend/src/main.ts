@@ -6,17 +6,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Enable CORS for mobile app with proper configuration
-  const allowedOrigins = process.env.NODE_ENV === 'production'
-    ? [
-        'https://expo.dev',
-        'exp://',
-        /^https:\/\/.*\.expo\.dev$/,
-        /^https:\/\/.*\.expo\.go\.app$/,
-      ]
-    : true; // Allow all origins in development
-
+  // Mobile apps (especially production builds) don't send standard web origins
+  // They may send 'null' or no origin header, so we need to allow all origins
+  // Since this is a mobile API (not a web API), we allow all origins
+  // Authentication is handled via JWT tokens, not CORS
   app.enableCors({
-    origin: allowedOrigins,
+    origin: true, // Allow all origins - mobile apps don't have same-origin restrictions
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],

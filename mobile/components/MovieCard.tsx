@@ -86,8 +86,8 @@ export const MovieCard: React.FC<MovieCardProps> = ({
       setIsInWatchlist(isAdded);
     } catch (error: any) {
       // Revert on error
-      setIsInWatchlist(previousState);
-      console.error('Error toggling watchlist:', error);
+        setIsInWatchlist(previousState);
+        console.error('Error toggling watchlist:', error);
     } finally {
       setIsToggling(false);
     }
@@ -173,7 +173,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({
         </View>
         
         {/* Centered poster with shadow */}
-        <View style={styles.posterContainer}>
+      <View style={styles.posterContainer}>
           <View style={styles.posterWrapper}>
             <Image 
               source={{ uri: posterUrl }} 
@@ -188,9 +188,9 @@ export const MovieCard: React.FC<MovieCardProps> = ({
 
       <Text style={styles.title}>{movie.title}</Text>
       <View style={styles.metaRow}>
-        {movie.releaseYear && (
-          <Text style={styles.year}>{movie.releaseYear}</Text>
-        )}
+      {movie.releaseYear && (
+        <Text style={styles.year}>{movie.releaseYear}</Text>
+      )}
         {movie.country && (
           <>
             {movie.releaseYear && <Text style={styles.metaSeparator}> | </Text>}
@@ -219,22 +219,22 @@ export const MovieCard: React.FC<MovieCardProps> = ({
       <View style={styles.trailerButtonContainer}>
         {movie.trailerKey ? (
           <>
-            <Pressable 
+          <Pressable 
               style={styles.trailerButton} 
-              onPress={() => setShowTrailer(true)}
-            >
+            onPress={() => setShowTrailer(true)}
+          >
               <View style={styles.trailerButtonContent}>
                 <View style={styles.playButtonCircle}>
                   <Ionicons name="play" size={16} color="#000000" />
                 </View>
                 <Text style={styles.trailerButtonText}>Смотреть трейлер</Text>
               </View>
-            </Pressable>
-            <TrailerModal
-              visible={showTrailer}
-              trailerKey={movie.trailerKey}
-              onClose={() => setShowTrailer(false)}
-            />
+        </Pressable>
+        <TrailerModal
+          visible={showTrailer}
+          trailerKey={movie.trailerKey}
+          onClose={() => setShowTrailer(false)}
+        />
           </>
         ) : (
           <View style={styles.noTrailerContainer}>
@@ -457,7 +457,7 @@ const styles = StyleSheet.create({
     shadowOffset: {
       width: 0,
       height: 4,
-    },
+  },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,

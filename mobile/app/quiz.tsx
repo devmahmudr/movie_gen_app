@@ -446,13 +446,13 @@ export default function QuizScreen() {
         style={styles.keyboardAvoidingView}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
       >
-        <ScrollView
+      <ScrollView
           ref={scrollViewRef}
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           contentInsetAdjustmentBehavior="automatic"
-        >
+      >
         <Text style={styles.question}>{currentQuestion.question}</Text>
         {currentQuestion.optional && !currentQuestion.input && (
           <Text style={styles.optionalText}>(необязательно)</Text>
@@ -567,7 +567,7 @@ export default function QuizScreen() {
             {currentQuestion.maxSelections}
           </Text>
         )}
-        </ScrollView>
+      </ScrollView>
       </KeyboardAvoidingView>
 
       <View style={styles.footer}>
