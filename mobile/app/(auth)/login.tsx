@@ -62,10 +62,22 @@ export default function LoginScreen() {
          err.message?.includes('network request failed'));
       
       if (isNetworkError) {
+        // Get the attempted URL from the error
+        const attemptedUrl = err.config?.baseURL 
+          ? `${err.config.baseURL}${err.config.url || '/auth/login'}`
+          : 'unknown';
+        
         // More helpful error message based on environment
-        const errorMsg = __DEV__
+        let errorMsg = __DEV__
           ? 'Не удалось подключиться к серверу. Проверьте подключение и настройки API. Для физического устройства используйте IP адрес компьютера.'
           : 'Не удалось подключиться к серверу. Проверьте подключение к интернету и повторите попытку.';
+        
+        // Add URL info for debugging (only in production to help diagnose)
+        if (!__DEV__ && attemptedUrl !== 'unknown') {
+          errorMsg += `\n\nПопытка подключения к: ${attemptedUrl}`;
+          errorMsg += `\nПроверьте настройки EXPO_PUBLIC_API_URL в eas.json`;
+        }
+        
         setError(errorMsg);
       } else if (err.response?.status === 401) {
         setError('Неверный email или пароль');
