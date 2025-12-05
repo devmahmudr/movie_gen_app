@@ -26,10 +26,24 @@ async function bootstrap() {
     }),
   );
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
+  // Add request logging middleware for debugging
+  app.use((req, res, next) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${req.method} ${req.path}`, {
+      origin: req.headers.origin || 'no-origin (mobile app)',
+      'user-agent': req.headers['user-agent']?.substring(0, 50) || 'no-user-agent',
+      'content-type': req.headers['content-type'] || 'no-content-type',
+    });
+    next();
+  });
 
-  console.log(`Application is running on: http://localhost:${port}`);
+  const port = process.env.PORT || 3000;
+  const host = '0.0.0.0'; // Listen on all interfaces (required for Railway/cloud deployments)
+  await app.listen(port, host);
+
+  console.log(`Application is running on: http://${host}:${port}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`CORS: Enabled (allowing all origins for mobile apps)`);
 }
 bootstrap();
 
