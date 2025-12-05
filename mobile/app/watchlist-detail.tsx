@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Pressable,
   Animated,
+  ScrollView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -184,21 +185,27 @@ export default function WatchlistDetailScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      <Animated.View style={[styles.movieContainer, { opacity: fadeAnim }]}>
-        <MovieCard
-          movie={movie}
-          historyId={movie.historyId}
-          initialIsWatched={movie.isWatched || false}
-          initialIsNotInterested={movie.isNotInterested || false}
-          initialIsInWatchlist={isInWatchlist}
-          onToggleWatchlist={async () => {
-            const isAdded = await handleToggleWatchlist(movie);
-            return isAdded;
-          }}
-          onToggleWatched={() => handleToggleWatched(movie)}
-          onToggleNotInterested={() => handleToggleNotInterested(movie)}
-        />
-      </Animated.View>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={true}
+      >
+        <Animated.View style={[styles.movieContainer, { opacity: fadeAnim }]}>
+          <MovieCard
+            movie={movie}
+            historyId={movie.historyId}
+            initialIsWatched={movie.isWatched || false}
+            initialIsNotInterested={movie.isNotInterested || false}
+            initialIsInWatchlist={isInWatchlist}
+            onToggleWatchlist={async () => {
+              const isAdded = await handleToggleWatchlist(movie);
+              return isAdded;
+            }}
+            onToggleWatched={() => handleToggleWatched(movie)}
+            onToggleNotInterested={() => handleToggleNotInterested(movie)}
+          />
+        </Animated.View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -227,8 +234,15 @@ const styles = StyleSheet.create({
   placeholder: {
     width: 40,
   },
-  movieContainer: {
+  scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 80, // Add padding for navbar
+  },
+  movieContainer: {
+    width: '100%',
   },
   loadingContainer: {
     flex: 1,

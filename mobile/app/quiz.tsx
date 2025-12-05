@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useSegments } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { recommendationsAPI } from '../services/apiClient';
@@ -167,6 +168,7 @@ export default function QuizScreen() {
   const params = useLocalSearchParams();
   const segments = useSegments();
   const { token } = useAuthStore();
+  const insets = useSafeAreaInsets();
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<QuizAnswers>({
     moods: [],
@@ -304,9 +306,12 @@ export default function QuizScreen() {
   };
 
   const handleNext = () => {
-    // Save input value for similarTo question
-    if (currentQuestion.input && similarToInput.trim()) {
-      setAnswers({ ...answers, [currentQuestion.key]: similarToInput.trim() });
+    // Save input value for similarTo question (4th question)
+    // IMPORTANT: Save even if empty string to ensure it's tracked
+    if (currentQuestion.input) {
+      const trimmedValue = similarToInput.trim();
+      setAnswers({ ...answers, [currentQuestion.key]: trimmedValue || undefined });
+      console.log('Saved similarTo (4th question):', trimmedValue || '(empty/skipped)');
     }
     
     if (currentStep < QUIZ_STEPS.length - 1) {
@@ -350,16 +355,27 @@ export default function QuizScreen() {
     // Show loading screen on Quiz screen before making API call
     setLoading(true);
     try {
-      console.log('Submitting quiz with answers:', answers);
       // Get language preference
       const language = useLanguageStore.getState().language;
       const languageCode = language === 'ru' ? 'ru-RU' : 'en-US';
       
+      // CRITICAL: Ensure similarTo (4th question) is captured - check both answers state and input state
+      // This handles the case where user typed something but didn't click Next (just clicked Submit)
+      const similarToValue = answers.similarTo || (similarToInput && similarToInput.trim() ? similarToInput.trim() : undefined);
+      
+      console.log('Submitting quiz with ALL 5 answers:', {
+        '1. Context': answers.context || 'Один',
+        '2. Moods': answers.moods,
+        '3. Tags': answers.tags,
+        '4. Similar To': similarToValue || '(not provided - user skipped)',
+        '5. Format': answers.format || 'Не важно',
+      });
+
       const response = await recommendationsAPI.getRecommendations({
         context: answers.context || 'Один',
         moods: answers.moods,
         tags: answers.tags,
-        similarTo: answers.similarTo,
+        similarTo: similarToValue, // This is the 4th question - MUST be included if provided
         format: answers.format || 'Не важно',
         language: languageCode,
       });
@@ -448,7 +464,7 @@ export default function QuizScreen() {
       >
       <ScrollView
           ref={scrollViewRef}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: 80 }]}
         showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           contentInsetAdjustmentBehavior="automatic"
@@ -570,7 +586,9 @@ export default function QuizScreen() {
       </ScrollView>
       </KeyboardAvoidingView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { 
+        paddingBottom: Math.max(insets.bottom, 8) + 80 // Navbar height (~60px) + safe area + extra space
+      }]}>
         <Pressable
           onPress={handleNext}
           disabled={!canProceed()}
@@ -692,8 +710,10 @@ const styles = StyleSheet.create({
   },
   footer: {
     padding: theme.spacing.lg,
+    paddingTop: theme.spacing.lg,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
+    // paddingBottom is set dynamically to account for navbar height and safe area
   },
   nextButton: {
     backgroundColor: theme.colors.primarySoft,

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,6 @@ import {
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { MovieCard } from '../components/MovieCard';
-import { BottomNavbar } from '../components/BottomNavbar';
 import { theme } from '../constants/theme';
 import { watchlistAPI, historyAPI, recommendationsAPI } from '../services/apiClient';
 import { useLanguageStore } from '../store/languageStore';
@@ -108,14 +107,12 @@ export default function ResultsScreen() {
       if (newRecommendations && Array.isArray(newRecommendations) && newRecommendations.length > 0) {
         // Append new movies to existing list
         setMovies(prevMovies => {
-          const updated = [...prevMovies, ...newRecommendations];
-          // Scroll to the first new movie after state update
-          setTimeout(() => {
-            const newIndex = prevMovies.length;
-            flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
-          }, 100);
-          return updated;
+          return [...prevMovies, ...newRecommendations];
         });
+        
+        // Don't auto-scroll - let user scroll naturally to see new items
+        // Auto-scrolling was causing rendering issues and black screens
+        // The "Generate More" button stays at the end, so users can see new items when they scroll down
       } else {
         console.error('No new recommendations received');
         alert('Не удалось найти дополнительные фильмы. Попробуйте изменить предпочтения.');
@@ -137,7 +134,7 @@ export default function ResultsScreen() {
     }
   };
 
-  const handleToggleWatchlist = async (movie: Movie) => {
+  const handleToggleWatchlist = useCallback(async (movie: Movie) => {
     try {
       const result = await watchlistAPI.toggle({
         movieId: movie.movieId,
@@ -150,15 +147,15 @@ export default function ResultsScreen() {
       console.error('Error toggling watchlist:', error);
       throw error; // Re-throw to let MovieCard handle the error
     }
-  };
+  }, []);
 
-  const handleRemove = (movie: Movie) => {
+  const handleRemove = useCallback((movie: Movie) => {
     console.log(`Removed from recommendations: ${movie.title}`);
     // Note: This doesn't actually remove from the list since we'd need state management
     // The user can just swipe to the next movie
-  };
+  }, []);
 
-  const handleToggleWatched = async (movie: Movie) => {
+  const handleToggleWatched = useCallback(async (movie: Movie) => {
     if (!movie.historyId) {
       console.warn('No historyId for movie:', movie.title);
       return false;
@@ -179,9 +176,9 @@ export default function ResultsScreen() {
       console.error('Error toggling watched:', error);
       throw error;
     }
-  };
+  }, []);
 
-  const handleToggleNotInterested = async (movie: Movie) => {
+  const handleToggleNotInterested = useCallback(async (movie: Movie) => {
     if (!movie.historyId) {
       console.warn('No historyId for movie:', movie.title);
       return false;
@@ -202,7 +199,7 @@ export default function ResultsScreen() {
       console.error('Error toggling not interested:', error);
       throw error;
     }
-  };
+  }, []);
 
   const handleBack = () => {
     // Navigate back and ensure quiz screen resets its loading state
@@ -210,9 +207,12 @@ export default function ResultsScreen() {
   };
 
   // Create data array with Generate More button at the end
-  const flatListData: FlatListItem[] = [...movies, { isLoadMoreButton: true }];
+  // Use useMemo to prevent recreating on every render
+  const flatListData: FlatListItem[] = useMemo(() => {
+    return [...movies, { isLoadMoreButton: true }];
+  }, [movies]);
 
-  const renderItem = ({ item, index }: { item: FlatListItem; index: number }) => {
+  const renderItem = useCallback(({ item, index }: { item: FlatListItem; index: number }) => {
     // Check if this is the Generate More button
     if ('isLoadMoreButton' in item && item.isLoadMoreButton) {
       return (
@@ -251,7 +251,7 @@ export default function ResultsScreen() {
     const isLastMovie = index === movies.length - 1;
     
     return (
-      <View style={styles.movieContainer}>
+      <View style={[styles.movieContainer, { backgroundColor: theme.colors.background }]}>
         <MovieCard
           movie={movie}
           historyId={movie.historyId}
@@ -269,7 +269,7 @@ export default function ResultsScreen() {
         {!isLastMovie && <View style={styles.divider} />}
       </View>
     );
-  };
+  }, [movies.length, isGeneratingMore]);
 
   if (movies.length === 0) {
     return (
@@ -284,7 +284,6 @@ export default function ResultsScreen() {
             <Text style={styles.backButtonText}>Назад</Text>
           </Pressable>
         </View>
-        <BottomNavbar />
       </SafeAreaView>
     );
   }
@@ -294,7 +293,7 @@ export default function ResultsScreen() {
       {/* Hide default header and use custom one */}
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.colors.background }]}>
         <Pressable onPress={handleBack} style={styles.backButtonHeader}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
         </Pressable>
@@ -313,29 +312,51 @@ export default function ResultsScreen() {
         ref={flatListRef}
         data={flatListData}
         renderItem={renderItem}
+        style={{ backgroundColor: theme.colors.background, flex: 1 }}
+        contentContainerStyle={{ 
+          paddingBottom: 80, 
+          backgroundColor: theme.colors.background,
+          flexGrow: 1
+        }}
         keyExtractor={(item, index) => {
           if ('isLoadMoreButton' in item && item.isLoadMoreButton) {
             return 'load-more-button';
           }
-          // Use index as primary key to ensure uniqueness (movieIds might duplicate)
+          // Use stable key: historyId if available (unique per movie), otherwise movieId + index
+          // This ensures keys don't change when items are added
           const movie = item as Movie;
-          return `movie-${index}-${movie.movieId || 'unknown'}`;
+          if (movie.historyId) {
+            return `movie-history-${movie.historyId}`;
+          }
+          return `movie-${movie.movieId}-${index}`;
         }}
         showsVerticalScrollIndicator={true}
-        contentContainerStyle={{ paddingBottom: 80 }}
+        // Performance optimizations - adjusted to prevent black screen
+        removeClippedSubviews={false} // Disabled to prevent black areas when scrolling
+        maxToRenderPerBatch={5}
+        windowSize={5} // Balanced window size for proper rendering
+        initialNumToRender={3}
+        updateCellsBatchingPeriod={150}
+        // Ensure proper rendering
+        disableVirtualization={false}
+        // Better scroll handling
+        onEndReachedThreshold={0.5}
+        // Handle scroll failures
         onScrollToIndexFailed={(info) => {
-          // Fallback: scroll to offset if scrollToIndex fails
-          const wait = new Promise(resolve => setTimeout(resolve, 500));
-          wait.then(() => {
-            flatListRef.current?.scrollToOffset({
-              offset: info.averageItemLength * info.index,
-              animated: true,
-            });
-          });
+          console.warn('ScrollToIndex failed, using fallback:', info);
+          // Wait for layout
+          setTimeout(() => {
+            if (flatListRef.current) {
+              // Use getItemLayout estimate or scroll to offset
+              const estimatedItemHeight = info.averageItemLength || 600;
+              flatListRef.current.scrollToOffset({
+                offset: Math.max(0, estimatedItemHeight * (info.index - 1)),
+                animated: true,
+              });
+            }
+          }, 100);
         }}
       />
-
-      <BottomNavbar />
     </SafeAreaView>
   );
 }
@@ -377,6 +398,7 @@ const styles = StyleSheet.create({
   },
   movieContainer: {
     width: '100%',
+    backgroundColor: theme.colors.background,
   },
   divider: {
     height: 1,

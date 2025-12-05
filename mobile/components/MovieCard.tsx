@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
-  ScrollView,
   ImageStyle,
+  Animated,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
@@ -25,6 +25,8 @@ interface Movie {
   overview?: string;
   country?: string;
   imdbRating?: number;
+  runtime?: number; // Duration in minutes
+  ageRating?: string; // Age restriction/certification (e.g., "PG-13", "R", "16+")
 }
 
 interface MovieCardProps {
@@ -40,7 +42,7 @@ interface MovieCardProps {
   onRemove?: () => void;
 }
 
-export const MovieCard: React.FC<MovieCardProps> = ({
+export const MovieCard: React.FC<MovieCardProps> = React.memo(({
   movie,
   historyId,
   initialIsWatched = false,
@@ -59,13 +61,22 @@ export const MovieCard: React.FC<MovieCardProps> = ({
   const [isTogglingWatched, setIsTogglingWatched] = useState(false);
   const [isTogglingNotInterested, setIsTogglingNotInterested] = useState(false);
   const [showTrailer, setShowTrailer] = useState(false);
+  const [isOverviewExpanded, setIsOverviewExpanded] = useState(false);
+  const opacityAnim = useRef(new Animated.Value(1)).current;
 
   // Update state when props change
   useEffect(() => {
     setIsWatched(initialIsWatched);
     setIsNotInterested(initialIsNotInterested);
     setIsInWatchlist(initialIsInWatchlist);
-  }, [initialIsWatched, initialIsNotInterested, initialIsInWatchlist]);
+    
+    // Update opacity animation when isNotInterested prop changes
+    if (initialIsNotInterested) {
+      opacityAnim.setValue(0.3);
+    } else {
+      opacityAnim.setValue(1);
+    }
+  }, [initialIsWatched, initialIsNotInterested, initialIsInWatchlist, opacityAnim]);
 
   const posterUrl = movie.posterPath.startsWith('http')
     ? movie.posterPath
@@ -125,6 +136,15 @@ export const MovieCard: React.FC<MovieCardProps> = ({
     setIsTogglingNotInterested(true);
     const previousState = isNotInterested;
     
+    // If marking as not interested (true), animate opacity decrease
+    if (!isNotInterested) {
+      Animated.timing(opacityAnim, {
+        toValue: 0.3,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+    
     // Optimistically update UI
     setIsNotInterested(!isNotInterested);
     
@@ -134,19 +154,40 @@ export const MovieCard: React.FC<MovieCardProps> = ({
         // Update with actual state from server
         if (typeof newState === 'boolean') {
           setIsNotInterested(newState);
+          // If still not interested, keep opacity low; otherwise restore
+          if (newState) {
+            Animated.timing(opacityAnim, {
+              toValue: 0.3,
+              duration: 200,
+              useNativeDriver: true,
+            }).start();
+          } else {
+            Animated.timing(opacityAnim, {
+              toValue: 1,
+              duration: 200,
+              useNativeDriver: true,
+            }).start();
+          }
         }
       }
     } catch (error) {
-      // Revert on error
+      // Revert on error - restore opacity and state
       setIsNotInterested(previousState);
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
       console.error('Error toggling not interested:', error);
     } finally {
       setIsTogglingNotInterested(false);
     }
   };
 
+  // Use View instead of ScrollView when inside FlatList to prevent nested scrolling issues
+  // Directly use View to avoid creating component on each render (prevents blinking)
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <Animated.View style={[styles.container, { opacity: opacityAnim }]}>
       <View style={styles.posterSectionContainer}>
         {/* Full-width blurred background effect */}
         <View style={styles.posterBackgroundContainer}>
@@ -191,15 +232,23 @@ export const MovieCard: React.FC<MovieCardProps> = ({
       {movie.releaseYear && (
         <Text style={styles.year}>{movie.releaseYear}</Text>
       )}
-        {movie.country && (
+        {movie.runtime && (
           <>
             {movie.releaseYear && <Text style={styles.metaSeparator}> | </Text>}
-            <Text style={styles.country}>🌍 {movie.country}</Text>
+            <Text style={styles.runtime}>{movie.runtime} мин</Text>
+          </>
+        )}
+        {movie.ageRating && (
+          <>
+            {(movie.releaseYear || movie.runtime) && <Text style={styles.metaSeparator}> | </Text>}
+            <Text style={styles.ageRating}>
+              {movie.ageRating.includes('+') ? movie.ageRating : `${movie.ageRating}+`}
+            </Text>
           </>
         )}
         {movie.imdbRating && (
           <>
-            {(movie.releaseYear || movie.country) && <Text style={styles.metaSeparator}> | </Text>}
+            {(movie.releaseYear || movie.runtime || movie.ageRating) && <Text style={styles.metaSeparator}> | </Text>}
             <View style={styles.imdbContainer}>
               <Text style={styles.imdbText}>IMDb</Text>
               <Text style={styles.imdbRating}>{movie.imdbRating.toFixed(1)}</Text>
@@ -304,21 +353,52 @@ export const MovieCard: React.FC<MovieCardProps> = ({
         )}
       </View>
 
-      <View style={styles.whySection}>
-        <Text style={styles.whyTitle}>О фильме</Text>
-        <Text style={styles.whyText}>
-          {movie.overview ||
-            'Описание фильма недоступно.'}
-        </Text>
-      </View>
-    </ScrollView>
+      {movie.overview && (
+        <View style={styles.whySection}>
+          <Pressable 
+            style={styles.whyHeader}
+            onPress={() => setIsOverviewExpanded(!isOverviewExpanded)}
+          >
+            <Text style={styles.whyTitle}>О фильме</Text>
+            <Ionicons 
+              name={isOverviewExpanded ? "chevron-up" : "chevron-down"} 
+              size={20} 
+              color={theme.colors.textSecondary}
+              style={[
+                styles.chevronIcon,
+                isOverviewExpanded && styles.chevronIconExpanded
+              ]}
+            />
+          </Pressable>
+          <Text 
+            style={styles.whyText}
+            numberOfLines={isOverviewExpanded ? undefined : 2}
+            ellipsizeMode="tail"
+          >
+            {movie.overview}
+          </Text>
+        </View>
+      )}
+    </Animated.View>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison to prevent unnecessary re-renders
+  return (
+    prevProps.movie.movieId === nextProps.movie.movieId &&
+    prevProps.historyId === nextProps.historyId &&
+    prevProps.initialIsWatched === nextProps.initialIsWatched &&
+    prevProps.initialIsNotInterested === nextProps.initialIsNotInterested &&
+    prevProps.initialIsInWatchlist === nextProps.initialIsInWatchlist
+  );
+});
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    backgroundColor: 'transparent', // Ensure transparent background
+    width: '100%',
     padding: theme.spacing.md,
+    // Prevent layout shifts that cause blinking
+    minHeight: 100,
   },
   posterSectionContainer: {
     width: '100%',
@@ -403,9 +483,14 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.md,
     marginHorizontal: theme.spacing.xs,
   },
-  country: {
+  runtime: {
     color: theme.colors.textSecondary,
     fontSize: theme.fontSize.md,
+  },
+  ageRating: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.md,
+    fontWeight: '600',
   },
   imdbContainer: {
     flexDirection: 'row',
@@ -514,11 +599,24 @@ const styles = StyleSheet.create({
   whySection: {
     marginBottom: theme.spacing.lg,
   },
+  whyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: theme.spacing.sm,
+  },
   whyTitle: {
     color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '600',
-    marginBottom: theme.spacing.sm,
+    flex: 1,
+  },
+  chevronIcon: {
+    marginLeft: theme.spacing.sm,
+    transform: [{ rotate: '0deg' }],
+  },
+  chevronIconExpanded: {
+    transform: [{ rotate: '180deg' }],
   },
   whyText: {
     color: theme.colors.textSecondary,

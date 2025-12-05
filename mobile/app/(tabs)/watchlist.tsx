@@ -122,6 +122,8 @@ export default function WatchlistScreen() {
           renderItem={renderMovie}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={true}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

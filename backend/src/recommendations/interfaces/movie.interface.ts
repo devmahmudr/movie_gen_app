@@ -12,6 +12,8 @@ export interface Movie {
   overview?: string;
   country?: string;
   imdbRating?: number;
+  runtime?: number; // Duration in minutes
+  ageRating?: string; // Age restriction/certification (e.g., "PG-13", "R", "16+")
 }
 
 export interface OpenAIRecommendation {

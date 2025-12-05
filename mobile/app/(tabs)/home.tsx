@@ -6,15 +6,32 @@ import {
   SafeAreaView,
   Image,
   Dimensions,
+  BackHandler,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { StyledButton } from '../../components/StyledButton';
 import { theme } from '../../constants/theme';
+import { useCallback } from 'react';
 
 const { width } = Dimensions.get('window');
 
 export default function HomeScreen() {
   const router = useRouter();
+
+  // Handle back button to exit app when on home page
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        // Exit app when back button is pressed on home page
+        BackHandler.exitApp();
+        return true; // Prevent default back behavior
+      };
+
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+
+      return () => subscription.remove();
+    }, [])
+  );
 
   return (
     <SafeAreaView style={styles.container}>
