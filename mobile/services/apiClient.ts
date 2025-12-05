@@ -46,12 +46,25 @@ if (API_BASE_URL.endsWith('/')) {
 }
 
 // Always log API URL for debugging (helps diagnose production issues)
+// This runs when the module loads, so it will show in logs immediately
 console.log('🔗 API Configuration:', {
   baseURL: API_BASE_URL,
-  envVar: process.env.EXPO_PUBLIC_API_URL || 'not set',
+  envVar: process.env.EXPO_PUBLIC_API_URL || 'NOT SET - THIS IS THE PROBLEM!',
   isDev: __DEV__,
   platform: Platform.OS,
+  resolvedFrom: process.env.EXPO_PUBLIC_API_URL 
+    ? 'EXPO_PUBLIC_API_URL env var' 
+    : (__DEV__ 
+      ? (Platform.OS === 'android' ? 'Android emulator default (10.0.2.2:3000)' : 'iOS simulator default (localhost:3000)')
+      : 'Production default (https://your-app.up.railway.app - PLACEHOLDER!)'),
 });
+
+// Warn if using placeholder URL in production
+if (!__DEV__ && (API_BASE_URL.includes('your-app.up.railway.app') || !process.env.EXPO_PUBLIC_API_URL)) {
+  console.error('⚠️ WARNING: EXPO_PUBLIC_API_URL is not set in production build!');
+  console.error('⚠️ The app will try to connect to:', API_BASE_URL);
+  console.error('⚠️ Make sure to set EXPO_PUBLIC_API_URL in eas.json before building!');
+}
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -61,16 +74,28 @@ export const apiClient = axios.create({
   timeout: 10000, // 10 second timeout
 });
 
-// Request interceptor to add JWT token
+// Request interceptor to add JWT token and log requests
 apiClient.interceptors.request.use(
   async (config) => {
     const token = useAuthStore.getState().token;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // Log every request (especially important for production debugging)
+    const fullUrl = `${config.baseURL || API_BASE_URL}${config.url || ''}`;
+    console.log('📤 API Request:', {
+      method: config.method?.toUpperCase(),
+      url: fullUrl,
+      baseURL: config.baseURL || API_BASE_URL,
+      endpoint: config.url,
+      hasToken: !!token,
+    });
+    
     return config;
   },
   (error) => {
+    console.error('❌ Request Interceptor Error:', error);
     return Promise.reject(error);
   }
 );
@@ -92,17 +117,28 @@ apiClient.interceptors.response.use(
 
     // Always log connection errors (even in production) for debugging
     if (isNetworkError) {
-      console.error('API Connection Error:', {
+      const attemptedUrl = error.config?.url 
+        ? `${error.config.baseURL || API_BASE_URL}${error.config.url}` 
+        : 'N/A';
+      
+      console.error('❌ API Connection Error:', {
         message: 'Cannot connect to backend server',
+        attemptedURL: attemptedUrl,
         baseURL: API_BASE_URL,
-        fullURL: error.config?.url ? `${API_BASE_URL}${error.config.url}` : 'N/A',
+        endpoint: error.config?.url || 'N/A',
         error: error.message,
         code: error.code,
         platform: Platform.OS,
         isDev: __DEV__,
         hasEnvVar: !!process.env.EXPO_PUBLIC_API_URL,
-        envVarValue: process.env.EXPO_PUBLIC_API_URL || 'not set',
+        envVarValue: process.env.EXPO_PUBLIC_API_URL || 'NOT SET - Check eas.json!',
+        timestamp: new Date().toISOString(),
       });
+      
+      // Additional helpful message
+      if (!process.env.EXPO_PUBLIC_API_URL && !__DEV__) {
+        console.error('💡 SOLUTION: Rebuild the app with EXPO_PUBLIC_API_URL set in eas.json');
+      }
     } else if (__DEV__) {
       // Log other errors only in development
       console.error('API Error:', {
