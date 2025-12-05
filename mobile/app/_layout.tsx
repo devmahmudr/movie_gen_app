@@ -1,16 +1,19 @@
 import { useEffect } from 'react';
-import { useRouter, useSegments } from 'expo-router';
+import { useRouter, useSegments, usePathname } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useAuthStore } from '../store/authStore';
 import { useLanguageStore } from '../store/languageStore';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { theme } from '../constants/theme';
+import { BottomNavbar } from '../components/BottomNavbar';
 
 export default function RootLayout() {
   const { token, isLoading, loadToken } = useAuthStore();
   const { loadLanguage } = useLanguageStore();
   const router = useRouter();
   const segments = useSegments();
+  const pathname = usePathname(); // Move hook before conditional returns
 
   useEffect(() => {
     loadToken();
@@ -42,6 +45,11 @@ export default function RootLayout() {
     // Let the quiz screen handle the auth check when generating recommendations
   }, [token, isLoading, segments, router]);
 
+  // Hide navbar on onboarding and auth pages
+  const hideNavbar = pathname === '/' || 
+                     pathname === '/index' || 
+                     pathname?.startsWith('/(auth)');
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -51,21 +59,22 @@ export default function RootLayout() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animation: 'slide_from_right',
-          // A smooth 250ms animation is perceived as faster than a flickering 100ms one.
-          animationDuration: 250,
-          // Set background color to prevent white flash during transitions
-          contentStyle: { backgroundColor: theme.colors.background },
-          // Additional options to prevent white flash
-          animationTypeForReplace: 'push',
-          gestureEnabled: true,
-          gestureDirection: 'horizontal',
-        }}
-      >
+    <SafeAreaProvider>
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: 'slide_from_right',
+            // A smooth 250ms animation is perceived as faster than a flickering 100ms one.
+            animationDuration: 250,
+            // Set background color to prevent white flash during transitions
+            contentStyle: { backgroundColor: theme.colors.background },
+            // Additional options to prevent white flash
+            animationTypeForReplace: 'push',
+            gestureEnabled: true,
+            gestureDirection: 'horizontal',
+          }}
+        >
         <Stack.Screen 
           name="index" 
           options={{
@@ -119,8 +128,11 @@ export default function RootLayout() {
             gestureDirection: 'horizontal',
           }}
         />
-      </Stack>
-    </View>
+        </Stack>
+        {/* BottomNavbar - visible on all pages except onboarding and auth */}
+        {!hideNavbar && <BottomNavbar />}
+      </View>
+    </SafeAreaProvider>
   );
 }
 

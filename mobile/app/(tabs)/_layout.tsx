@@ -10,13 +10,7 @@ export default function TabsLayout() {
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,
         tabBarStyle: {
-          backgroundColor: theme.colors.backgroundDark,
-          borderTopColor: theme.colors.border,
-          borderTopWidth: 1,
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
+          display: 'none', // Hide default tab bar since we're using BottomNavbar in root layout
         },
         // Set background color to prevent white flash
         contentStyle: { 

@@ -52,8 +52,11 @@ export class OpenAIService {
       }
 
       console.log('[OpenAI] Parsed recommendations:', JSON.stringify(recommendations, null, 2));
+      console.log(`[OpenAI] Received ${recommendations.length} recommendations from OpenAI`);
 
-      return recommendations.slice(0, 3); // Ensure we only return 3
+      // Return all recommendations (don't limit to 3) - the caller will decide how many to process
+      // This allows requesting more movies than needed for retry scenarios
+      return recommendations;
     } catch (error) {
       console.error('[OpenAI] API error:', error);
       throw new HttpException(

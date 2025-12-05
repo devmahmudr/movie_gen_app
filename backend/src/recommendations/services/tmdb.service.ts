@@ -13,12 +13,14 @@ export interface TMDbMovieResult {
 export class TMDbService {
   private readonly apiKey: string;
   private readonly baseUrl: string;
+  private readonly youtubeApiKey: string;
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('TMDB_API_KEY');
     this.baseUrl =
       this.configService.get<string>('TMDB_BASE_URL') ||
       'https://api.themoviedb.org/3';
+    this.youtubeApiKey = this.configService.get<string>('YOUTUBE_API_KEY') || '';
   }
 
   /**
@@ -41,6 +43,8 @@ export class TMDbService {
     overview?: string;
     country?: string;
     imdbRating?: number;
+    runtime?: number;
+    ageRating?: string;
   } | null> {
     try {
       const searchUrl = `${this.baseUrl}/search/movie`;
@@ -85,6 +89,8 @@ export class TMDbService {
         overview: details?.overview,
         country: details?.country,
         imdbRating: details?.imdbRating,
+        runtime: details?.runtime,
+        ageRating: details?.ageRating,
       };
     } catch (error) {
       console.error(`[TMDb] Search error for "${title}":`, error.message);
@@ -106,11 +112,13 @@ export class TMDbService {
   async getMovieDetails(
     movieId: string,
     language: string = 'ru-RU',
-  ): Promise<{ 
+  ): Promise<{
     genres: string[];
     overview?: string;
     country?: string;
     imdbRating?: number;
+    runtime?: number;
+    ageRating?: string;
   } | null> {
     try {
       const movieUrl = `${this.baseUrl}/movie/${movieId}`;
@@ -118,20 +126,80 @@ export class TMDbService {
         params: {
           api_key: this.apiKey,
           language: language,
-          append_to_response: 'external_ids',
+          append_to_response: 'external_ids,release_dates',
         },
       });
 
       const genres = response.data.genres?.map((g: any) => g.name) || [];
       const overview = response.data.overview || '';
-      
+
       // Get country from production_countries (first country)
       const country = response.data.production_countries?.[0]?.name || '';
-      
+
+      // Get runtime in minutes
+      const runtime = response.data.runtime || undefined;
+
+      // Get certification/age rating from release_dates
+      // Prefer numeric age ratings (EU/RU format: 0+, 6+, 12+, 16+, 18+)
+      let ageRating: string | undefined;
+      try {
+        const releaseDates = response.data.release_dates?.results || [];
+
+        // Mapping of US certifications to numeric age ratings
+        const usCertToAge: { [key: string]: string } = {
+          'G': '0+',
+          'PG': '7+',
+          'PG-13': '13+',
+          'R': '18+',
+          'NC-17': '18+',
+        };
+
+        // Try to find numeric ratings first (EU countries, Russia, etc.)
+        const numericRatingCountries = ['RU', 'DE', 'FR', 'GB', 'ES', 'IT', 'NL', 'BE', 'PL', 'CZ', 'SE', 'NO', 'DK', 'FI'];
+        for (const countryCode of numericRatingCountries) {
+          const countryRelease = releaseDates.find((r: any) => r.iso_3166_1 === countryCode);
+          const cert = countryRelease?.release_dates?.find((rd: any) => rd.certification)?.certification;
+          if (cert) {
+            // Check if it's already numeric (contains + or is a number)
+            if (/^\d+\+?$/.test(cert) || cert.includes('+')) {
+              ageRating = cert.includes('+') ? cert : `${cert}+`;
+              break;
+            }
+          }
+        }
+
+        // If no numeric rating found, try US and convert it
+        if (!ageRating) {
+          const usRelease = releaseDates.find((r: any) => r.iso_3166_1 === 'US');
+          const usCert = usRelease?.release_dates?.find((rd: any) => rd.certification)?.certification;
+          if (usCert && usCertToAge[usCert]) {
+            ageRating = usCertToAge[usCert];
+          } else if (usCert) {
+            // If it's an unknown US cert, try to parse it as numeric or default to 18+
+            ageRating = /^\d+\+?$/.test(usCert) ? (usCert.includes('+') ? usCert : `${usCert}+`) : '18+';
+          }
+        }
+
+        // Last resort: try any other certification
+        if (!ageRating) {
+          for (const release of releaseDates) {
+            const cert = release.release_dates?.find((rd: any) => rd.certification)?.certification;
+            if (cert) {
+              if (/^\d+\+?$/.test(cert)) {
+                ageRating = cert.includes('+') ? cert : `${cert}+`;
+                break;
+              }
+            }
+          }
+        }
+      } catch (certError) {
+        console.log(`[TMDb] Could not fetch certification for ${movieId}`);
+      }
+
       // Get IMDb ID and fetch rating
       const imdbId = response.data.external_ids?.imdb_id;
       let imdbRating: number | undefined;
-      
+
       if (imdbId) {
         try {
           // Fetch IMDb rating from OMDb API (free tier available)
@@ -144,7 +212,7 @@ export class TMDbService {
             },
             timeout: 3000, // 3 second timeout
           });
-          
+
           if (omdbResponse.data?.imdbRating) {
             imdbRating = parseFloat(omdbResponse.data.imdbRating);
           }
@@ -165,9 +233,11 @@ export class TMDbService {
         hasOverview: !!overview,
         country,
         imdbRating,
+        runtime,
+        ageRating,
       });
 
-      return { genres, overview, country, imdbRating };
+      return { genres, overview, country, imdbRating, runtime, ageRating };
     } catch (error) {
       console.error(`[TMDb] Get movie details error for ID "${movieId}":`, error.message);
       return null;
@@ -183,7 +253,7 @@ export class TMDbService {
   async getMovieVideos(movieId: string, language: string = 'ru-RU'): Promise<string | null> {
     try {
       const videosUrl = `${this.baseUrl}/movie/${movieId}/videos`;
-      
+
       // First, try with the requested language
       let response = await axios.get(videosUrl, {
         params: {
@@ -210,13 +280,13 @@ export class TMDbService {
       }
 
       const videos = response.data.results;
-      
+
       // Extract language code from language parameter (e.g., 'ru-RU' -> 'ru')
       const targetLanguageCode = language.split('-')[0].toLowerCase();
-      
+
       // Priority order: Trailer > Teaser > Clip > Featurette > Behind the Scenes
       const videoTypes = ['Trailer', 'Teaser', 'Clip', 'Featurette', 'Behind the Scenes'];
-      
+
       // First, try to find videos matching the target language
       for (const type of videoTypes) {
         const video = videos.find(
@@ -226,13 +296,13 @@ export class TMDbService {
             v.official === true &&
             v.iso_639_1?.toLowerCase() === targetLanguageCode, // Match language
         );
-        
+
         if (video) {
           console.log(`[TMDb] Found ${type} in ${targetLanguageCode} for movie ${movieId}: ${video.key}`);
           return video.key;
         }
       }
-      
+
       // If no official videos in target language, try any video in target language
       for (const type of videoTypes) {
         const video = videos.find(
@@ -241,13 +311,13 @@ export class TMDbService {
             v.type === type &&
             v.iso_639_1?.toLowerCase() === targetLanguageCode, // Match language
         );
-        
+
         if (video) {
           console.log(`[TMDb] Found unofficial ${type} in ${targetLanguageCode} for movie ${movieId}: ${video.key}`);
           return video.key;
         }
       }
-      
+
       // If no videos in target language, fall back to any official video
       for (const type of videoTypes) {
         const video = videos.find(
@@ -256,20 +326,20 @@ export class TMDbService {
             v.type === type &&
             v.official === true,
         );
-        
+
         if (video) {
           console.log(`[TMDb] Found ${type} (fallback, not in ${targetLanguageCode}) for movie ${movieId}: ${video.key}`);
           return video.key;
         }
       }
-      
+
       // If no official videos found, try any YouTube video of the preferred types
       for (const type of videoTypes) {
         const video = videos.find(
           (v: any) =>
             v.site === 'YouTube' &&
             v.type === type,
-      );
+        );
 
         if (video) {
           console.log(`[TMDb] Found unofficial ${type} (fallback) for movie ${movieId}: ${video.key}`);
@@ -290,6 +360,141 @@ export class TMDbService {
         `TMDb get videos error for ID "${movieId}":`,
         error.message,
       );
+      return null;
+    }
+  }
+
+  /**
+   * Get movie titles in both Russian and English
+   * @param movieId TMDb movie ID
+   * @returns Object with Russian and English titles
+   */
+  async getMovieTitles(movieId: string): Promise<{ titleRu: string; titleEn: string } | null> {
+    try {
+      // Fetch Russian title
+      const ruResponse = await axios.get(`${this.baseUrl}/movie/${movieId}`, {
+        params: {
+          api_key: this.apiKey,
+          language: 'ru-RU',
+        },
+      });
+
+      // Fetch English title
+      const enResponse = await axios.get(`${this.baseUrl}/movie/${movieId}`, {
+        params: {
+          api_key: this.apiKey,
+          language: 'en-US',
+        },
+      });
+
+      return {
+        titleRu: ruResponse.data?.title || '',
+        titleEn: enResponse.data?.title || '',
+      };
+    } catch (error) {
+      console.error(`[TMDb] Error fetching titles for movie ${movieId}:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Search for movie trailer on YouTube using language-specific queries
+   * @param movieTitleRus Russian movie title
+   * @param movieTitleEn English movie title
+   * @param interfaceLanguage Interface language ('ru' or 'en')
+   * @returns YouTube video ID or null
+   */
+  async searchTrailerOnYouTube(
+    movieTitleRus: string,
+    movieTitleEn: string,
+    interfaceLanguage: string = 'ru',
+  ): Promise<string | null> {
+    if (!this.youtubeApiKey) {
+      console.warn('[YouTube] API key not configured, skipping YouTube search');
+      return null;
+    }
+
+    try {
+      const isRussianInterface = interfaceLanguage.toLowerCase() === 'ru' || interfaceLanguage.toLowerCase().startsWith('ru');
+
+      // Define search queries based on interface language
+      const searchQueries: string[] = [];
+
+      if (isRussianInterface) {
+        // For Russian interface: try Russian title first
+        searchQueries.push(`${movieTitleRus} трейлер`);
+        // Fallback queries
+        searchQueries.push(`${movieTitleEn} russian trailer`);
+        searchQueries.push(`${movieTitleEn} трейлер`);
+      } else {
+        // For English interface: only English trailers
+        searchQueries.push(`${movieTitleEn} trailer`);
+      }
+
+      // Try each query in order
+      for (const query of searchQueries) {
+        try {
+          const searchUrl = 'https://www.googleapis.com/youtube/v3/search';
+          const response = await axios.get(searchUrl, {
+            params: {
+              part: 'snippet',
+              q: query,
+              type: 'video',
+              maxResults: 10, // Increased to get more candidates
+              key: this.youtubeApiKey,
+              videoCategoryId: '1', // Film & Animation category
+              relevanceLanguage: interfaceLanguage, // Filter results by interface language
+            },
+          });
+
+          if (response.data?.items && response.data.items.length > 0) {
+            // Find the best match based on language and trailer keywords
+            let bestMatch = response.data.items[0];
+
+            // Priority 1: Videos with language-specific trailer keywords
+            if (isRussianInterface) {
+              // For Russian: prioritize "трейлер" or "русский" in title/description
+              for (const item of response.data.items) {
+                const title = item.snippet?.title?.toLowerCase() || '';
+                const description = item.snippet?.description?.toLowerCase() || '';
+                const combined = title + ' ' + description;
+
+                if (combined.includes('трейлер') || combined.includes('русский')) {
+                  bestMatch = item;
+                  console.log(`[YouTube] Found Russian trailer match: ${title}`);
+                  break;
+                }
+              }
+            }
+
+            // Priority 2: Videos with "trailer" keyword (any language)
+            if (!bestMatch || bestMatch === response.data.items[0]) {
+              for (const item of response.data.items) {
+                const title = item.snippet?.title?.toLowerCase() || '';
+                if (title.includes('trailer') || title.includes('трейлер')) {
+                  bestMatch = item;
+                  break;
+                }
+              }
+            }
+
+            const videoId = bestMatch.id?.videoId;
+            if (videoId) {
+              console.log(`[YouTube] Found trailer for "${query}": ${videoId} (${bestMatch.snippet?.title})`);
+              return videoId;
+            }
+          }
+        } catch (error) {
+          console.warn(`[YouTube] Search failed for query "${query}":`, error.message);
+          // Continue to next query
+          continue;
+        }
+      }
+
+      console.log(`[YouTube] No trailer found for movie: ${movieTitleRus} / ${movieTitleEn}`);
+      return null;
+    } catch (error) {
+      console.error('[YouTube] Error searching for trailer:', error.message);
       return null;
     }
   }
