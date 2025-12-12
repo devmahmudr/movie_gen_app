@@ -65,7 +65,7 @@ Before starting, ensure you have:
    {
      "scripts": {
        "start": "npm run start:prod",
-       "start:prod": "node dist/main",
+       "start:prod": "node dist/src/main",
        "build": "nest build",
        "postbuild": "npm run migration:run"
      }
