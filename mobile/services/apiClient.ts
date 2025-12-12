@@ -8,11 +8,15 @@ import { useAuthStore } from '../store/authStore';
 // 2. Development: Detect emulator vs physical device
 // 3. Production: Use Railway URL from eas.json
 const getApiBaseUrl = (): string => {
-  // ALWAYS check environment variable first (highest priority)
-  // This is set in eas.json for builds, or .env for Expo Go
+  // PRODUCTION: Always use Railway URL for production builds
+  // This ensures OTA updates work correctly even if env var was from old build
+  if (!__DEV__) {
+    return 'https://moviegenapp-production.up.railway.app';
+  }
+
+  // DEVELOPMENT: Check environment variable first (from .env file)
   if (process.env.EXPO_PUBLIC_API_URL) {
     const url = process.env.EXPO_PUBLIC_API_URL.trim();
-    // Ensure URL has protocol
     if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
       return `https://${url}`;
     }
@@ -20,28 +24,13 @@ const getApiBaseUrl = (): string => {
   }
 
   // Development mode - auto-detect emulator vs physical device
-  if (__DEV__) {
-    // Check if running in Expo Go (development client)
-    // For Expo Go, we need the local IP address
-    // For emulators, use special addresses
-    
-    if (Platform.OS === 'android') {
-      // Android emulator uses 10.0.2.2 to access host machine's localhost
-      // If this doesn't work, user should set EXPO_PUBLIC_API_URL in .env
-      return 'http://10.0.2.2:3000';
-    } else {
-      // iOS Simulator can use localhost directly
-      // For physical iOS device, user must set EXPO_PUBLIC_API_URL
-      return 'http://localhost:3000';
-    }
+  if (Platform.OS === 'android') {
+    return 'http://10.0.2.2:3000';
+  } else {
+    return 'http://localhost:3000';
   }
-
-  // Production mode - should always have EXPO_PUBLIC_API_URL set
-  // If not set, this is a configuration error
-  console.error('❌ CRITICAL: EXPO_PUBLIC_API_URL not set in production build!');
-  console.error('❌ Please set EXPO_PUBLIC_API_URL in eas.json production profile');
-  return 'https://moviegenapp-production.up.railway.app'; // Fallback (should not happen)
 };
+
 
 // Get API base URL and ensure it has protocol
 let API_BASE_URL = getApiBaseUrl();
@@ -57,11 +46,11 @@ if (API_BASE_URL.endsWith('/')) {
 
 // Always log API URL for debugging (helps diagnose production issues)
 // This runs when the module loads, so it will show in logs immediately
-const resolvedFrom = process.env.EXPO_PUBLIC_API_URL 
-  ? 'EXPO_PUBLIC_API_URL env var' 
-  : (__DEV__ 
-    ? (Platform.OS === 'android' 
-      ? 'Android emulator default (10.0.2.2:3000)' 
+const resolvedFrom = process.env.EXPO_PUBLIC_API_URL
+  ? 'EXPO_PUBLIC_API_URL env var'
+  : (__DEV__
+    ? (Platform.OS === 'android'
+      ? 'Android emulator default (10.0.2.2:3000)'
       : 'iOS simulator default (localhost:3000) - For physical device, set EXPO_PUBLIC_API_URL in .env')
     : 'Production fallback - EXPO_PUBLIC_API_URL should be set in eas.json!');
 
@@ -100,7 +89,7 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
+
     // Log every request (especially important for production debugging)
     const fullUrl = `${config.baseURL || API_BASE_URL}${config.url || ''}`;
     console.log('📤 API Request:', {
@@ -110,7 +99,7 @@ apiClient.interceptors.request.use(
       endpoint: config.url,
       hasToken: !!token,
     });
-    
+
     return config;
   },
   (error) => {
@@ -124,22 +113,22 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     // Check for network/connection errors
-    const isNetworkError = 
-      !error.response && 
-      (error.code === 'ECONNREFUSED' || 
-       error.code === 'ENOTFOUND' || 
-       error.code === 'ETIMEDOUT' ||
-       error.code === 'ECONNABORTED' ||
-       error.message?.includes('Network Error') ||
-       error.message?.includes('network request failed') ||
-       error.message?.includes('timeout'));
+    const isNetworkError =
+      !error.response &&
+      (error.code === 'ECONNREFUSED' ||
+        error.code === 'ENOTFOUND' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ECONNABORTED' ||
+        error.message?.includes('Network Error') ||
+        error.message?.includes('network request failed') ||
+        error.message?.includes('timeout'));
 
     // Always log connection errors (even in production) for debugging
     if (isNetworkError) {
-      const attemptedUrl = error.config?.url 
-        ? `${error.config.baseURL || API_BASE_URL}${error.config.url}` 
+      const attemptedUrl = error.config?.url
+        ? `${error.config.baseURL || API_BASE_URL}${error.config.url}`
         : 'N/A';
-      
+
       console.error('❌ API Connection Error:', {
         message: 'Cannot connect to backend server',
         attemptedURL: attemptedUrl,
@@ -153,7 +142,7 @@ apiClient.interceptors.response.use(
         envVarValue: process.env.EXPO_PUBLIC_API_URL || 'NOT SET - Check eas.json!',
         timestamp: new Date().toISOString(),
       });
-      
+
       // Additional helpful message
       if (!process.env.EXPO_PUBLIC_API_URL && !__DEV__) {
         console.error('💡 SOLUTION: Rebuild the app with EXPO_PUBLIC_API_URL set in eas.json');
