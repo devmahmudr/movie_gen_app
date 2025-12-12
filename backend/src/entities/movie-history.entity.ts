@@ -30,6 +30,12 @@ export class MovieHistory {
   @Column({ type: 'text', nullable: true })
   posterPath: string;
 
+  @Column({ type: 'text', nullable: true })
+  englishTitle: string;
+
+  @Column({ type: 'text', nullable: true })
+  trailerKey: string;
+
   @Column({ type: 'integer', nullable: true })
   userRating: number;
 

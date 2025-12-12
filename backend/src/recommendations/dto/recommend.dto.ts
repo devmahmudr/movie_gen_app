@@ -4,6 +4,7 @@ import {
   IsString,
   IsOptional,
   ArrayMaxSize,
+  MaxLength,
 } from 'class-validator';
 
 export enum ContextEnum {
@@ -37,6 +38,7 @@ export class RecommendDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500, { message: 'similarTo must not exceed 500 characters' })
   similarTo?: string;
 
   @IsEnum(FormatEnum)

@@ -53,3 +53,5 @@ Thumbs.db
 *.temp
 .cache/
 
+REDIS_SETUP.md
+TEST_RESULTS.md

@@ -30,66 +30,105 @@ interface QuizAnswers {
 }
 
 const moodToTagsMap: { [key: string]: string[] } = {
+  // 1. РАССЛАБИТЬСЯ
   Расслабиться: [
-    '🌿 Природная атмосфера',
-    '🏡 Уют',
-    '🎭 Мощная эмоция',
+    '🌿 Природная атмосфера — леса, море, закаты, спокойствие',
+    '🏡 Уютный маленький город — ламповые беседы, тихая жизнь',
+    '🍵 Тёплая повседневность — еда, хобби, уютный ритм',
+    '🌤 Мягкая романтика — лёгкие эмоции, без драмы',
+    '✈️ Путешествие без спешки — красивые кадры и спокойствие',
   ],
-  'Поднять настроение': [
-    '🔥 Экшен',
-    '🎭 Мощная эмоция',
-  ],
-  Посмеяться: [
-    '🎭 Мощная эмоция',
-    '🎢 Неожиданный финал',
-  ],
-  Удивиться: [
-    '👁 Мистика',
-    '🌀 Загадочность',
-    '🎢 Неожиданный финал',
-    '⏳ Временная петля',
-    '🧠 Глубокий смысл',
-    '🤖 Роботы / ИИ',
-    '🛸 Пришельцы',
-    '🌆 Будущее / киберпанк',
-  ],
-  'Почувствовать уют/тепло': [
-    '🏡 Уют',
-    '🌿 Природная атмосфера',
-    '🎭 Мощная эмоция',
-  ],
+  // 2. АДРЕНАЛИН
   Адреналин: [
-    '🔥 Экшен',
-    '🪖 Война',
-    '👊🏻 Криминал',
-    '🕳 Психологический триллер',
-    '🔍 Расследование',
+    '🔫 Криминальный мир — банды, мафия, опасные дела',
+    '💣 Война и спецоперации — героизм, риск, напряжение',
+    '🏃 Побег или погоня — скорость, опасность, драйв',
+    '🥋 Боевые искусства — стильные драки, дисциплина',
+    '🌪 Выживание на пределе — стихии, борьба за жизнь',
+    '☣️ Пост-апокалипсис — мир после катастрофы, хаос',
   ],
+  // 3. ПОСМЕЯТЬСЯ
+  Посмеяться: [
+    '😂 Ситуационная комедия — нелепости, угар',
+    '💘 Романтические приколы — свидания, флирт',
+    '🧑‍🤝‍🧑 Дружеская движуха — бардак компании',
+    '🚗 Дорожные приколы — приключения в пути',
+    '🎭 Сатира и стёб — смех над реальностью',
+  ],
+  // 4. УДИВИТЬСЯ
+  Удивиться: [
+    '🌀 Неожиданный финал — поворот-шок',
+    '🔮 Альтернативная реальность — другой мир, другие правила',
+    '🔁 Временная петля — цикл, ломка сознания',
+    '✨ Магия среди нас — необычное в обычном',
+    '🚀 Удивительное будущее — технологии и мир будущего',
+  ],
+  // 5. УЮТ / ТЕПЛО
+  'Почувствовать уют / тепло': [
+    '🕯 Тёплая семейная история — отношения и любовь',
+    '🎄 Зимняя атмосфера — огоньки, праздник, уют',
+    '💛 Добрая романтика — мягкие чувства',
+    '📚 Ностальгия по детству — воспоминания, тепло',
+    '🧁 Терапевтичный уют — спокойствие и комфорт',
+  ],
+  // 6. ПОГРУЗИТЬСЯ В АТМОСФЕРУ
   'Погрузиться в атмосферу': [
-    '🌌 Космос',
-    '🌆 Будущее / киберпанк',
-    '🌿 Природная атмосфера',
-    '🏡 Уют',
-    '👁 Мистика',
-    '🌀 Загадочность',
+    '🌌 Атмосферный космос — красота Вселенной',
+    '🌫 Мрачный нуар — дождь, тени, детективность',
+    '🏛 Мир древних легенд — мифы и ритуалы',
+    '🎨 Визуальная эстетика — кино как искусство',
+    '🐾 Природная магия — туман, духи, лес',
+    '👽 Пришельцы (атмосферно) — загадка, неизвестность',
   ],
-  Вдохновиться: [
-    '🌌 Космос',
-    '🧠 Глубокий смысл',
-    '🎭 Мощная эмоция',
-    '🌆 Будущее / киберпанк',
-  ],
+  // 7. ЧУТЬ ПОПЕРЕЖИВАТЬ
   'Чуть попереживать': [
-    '🔍 Расследование',
-    '👊🏻 Криминал',
-    '🕳 Психологический триллер',
-    '🎭 Мощная эмоция',
+    '🔍 Лёгкое расследование — загадка, интрига',
+    '❤️‍🩹 Сложные отношения — чувства, выбор',
+    '🧩 Психологические загадки — непростые персонажи',
+    '❄️ Тихая драма — спокойная, но цепляющая',
+    '🕰 История о судьбе — размышления и смысл',
   ],
+  // 8. НЕМНОГО ПОПУГАТЬСЯ
   'Немного попугаться': [
-    '👁 Мистика',
-    '🌀 Загадочность',
-    '🕳 Психологический триллер',
-    '🔍 Расследование',
+    '👁 Мистика — тени, странности',
+    '👻 Паранормальные явления — дом, где «что-то есть»',
+    '🌑 Тревожная атмосфера — холодок по спине',
+    '🌲 Жуткие места — лес, заброшки, туннели',
+    '🧠 Психологический триллер — игра разума',
+    '👽 Пришельцы (страшные) — вторжение, страх неизвестного',
+  ],
+  // 9. ГЛУБОКИЕ ЭМОЦИИ
+  'Глубокие эмоции': [
+    '💔 Сильная жизненная история — судьбы, которые ломают',
+    '🌙 Глубокий смысл — философия, размышления',
+    '🎭 Мощная эмоция — катарсис, очищение',
+    '🛤 Путь героя через боль — падение и подъём',
+    '📖 Реальные события — история, которая была',
+  ],
+  // 10. ПРИКЛЮЧЕНИЕ
+  'Чувство приключения': [
+    '🗺 Поиск артефактов — карты, ловушки',
+    '👑 Эпическое фэнтези — короли, магия, миры',
+    '🚀 Космические приключения — галактики и битвы',
+    '🛡 Геройское становление — путь персонажа',
+    '🧭 Экспедиции — неизведанные территории',
+    '👽 Инопланетные миры — цивилизации и планеты',
+  ],
+  // 11. ТАЙНА
+  'Ощутить тайну': [
+    '🔍 Расследование — улики, подозрения',
+    '🕵 Секретные организации — заговоры',
+    '🕳 Тёмная загадочность — символы и странности',
+    '📜 Загадки прошлого — тайны истории',
+    '🎭 Двойные игры — манипуляции и ложь',
+  ],
+  // 12. ВДОХНОВЕНИЕ
+  Вдохновиться: [
+    '🥇 История успеха — цель, путь',
+    '🎨 Творческий поиск — искусство и смысл',
+    '🤝 Преодоление трудностей — сила характера',
+    '🚴 Спортивные достижения — борьба за рекорды',
+    '🌄 Духовный рост — путь к себе',
   ],
 };
 
@@ -106,53 +145,38 @@ const QUIZ_STEPS = [
     key: 'context' as keyof QuizAnswers,
   },
   {
-    question: 'Какое настроение хочешь получить? (1–2 эмоции)',
+    question: 'Какое ощущение ты хочешь получить?',
     options: [
       'Расслабиться',
-      'Поднять настроение',
+      'Адреналин',
       'Посмеяться',
       'Удивиться',
-      'Почувствовать уют/тепло',
-      'Адреналин',
+      'Почувствовать уют / тепло',
       'Погрузиться в атмосферу',
-      'Вдохновиться',
       'Чуть попереживать',
       'Немного попугаться',
+      'Глубокие эмоции',
+      'Чувство приключения',
+      'Ощутить тайну',
+      'Вдохновиться',
     ],
     key: 'moods' as keyof QuizAnswers,
     multiple: true,
     maxSelections: 2,
   },
   {
-    question: 'Какую атмосферу и сюжетные мотивы хочешь сегодня? (1–2 тега)',
-    options: [
-      '🛸 Пришельцы',
-      '👁 Мистика',
-      '🌀 Загадочность',
-      '🌌 Космос',
-      '🕳 Психологический триллер',
-      '🔍 Расследование',
-      '🎭 Мощная эмоция',
-      '🎢 Неожиданный финал',
-      '⏳ Временная петля',
-      '🤖 Роботы / ИИ',
-      '🌆 Будущее / киберпанк',
-      '🔥 Экшен',
-      '🪖 Война',
-      '👊🏻 Криминал',
-      '🧠 Глубокий смысл',
-      '🌿 Природная атмосфера',
-      '🏡 Уют',
-    ],
+    question: 'Атмосферные сюжетные мотивы',
+    options: [], // Will be populated dynamically based on selected moods
     key: 'tags' as keyof QuizAnswers,
     multiple: true,
     maxSelections: 2,
   },
   {
-    question: 'Можете написать о чем примерно должен быть фильм?',
+    question: 'Хочешь уточнить детали фильма? (опционально)',
     key: 'similarTo' as keyof QuizAnswers,
     optional: true,
     input: true, // This is an input field
+    placeholder: 'Хочу как Криминальный город, криминальная комедия Южной Кореи',
   },
   {
     question: 'Хочешь фильм, сериал или мультфильм варианта?',
@@ -213,28 +237,30 @@ export default function QuizScreen() {
   useEffect(() => {
     const currentSegment = segments[0] || '';
     const previousSegment = previousSegmentRef.current;
-    
+
     // If we're on quiz screen and were previously on results, reset loading
     if (currentSegment === 'quiz' && previousSegment === 'results') {
       setLoading(false);
     }
-    
+
     previousSegmentRef.current = currentSegment;
   }, [segments]);
 
   const getAvailableTags = () => {
     if (answers.moods.length === 0) {
-      return QUIZ_STEPS[2].options || [];
+      return []; // No tags available until moods are selected
     }
+    // Get tags from all selected moods and combine them
     const availableTags = answers.moods.flatMap((mood) => moodToTagsMap[mood] || []);
     const uniqueTags = [...new Set(availableTags)];
-    
+
     // Add custom tags that are not in the predefined list
-    const customTags = answers.tags.filter(tag => 
-      !QUIZ_STEPS[2].options?.includes(tag) && 
+    const allPredefinedTags = Object.values(moodToTagsMap).flat();
+    const customTags = answers.tags.filter(tag =>
+      !allPredefinedTags.includes(tag) &&
       !uniqueTags.includes(tag)
     );
-    
+
     return [...uniqueTags, ...customTags];
   };
 
@@ -272,13 +298,13 @@ export default function QuizScreen() {
           newAnswersList = currentAnswers;
         }
       }
-      
+
       if (isMoodQuestion) {
         // If moods change, reset tags but keep custom tags
         const availableTags = newAnswersList.flatMap(mood => moodToTagsMap[mood] || []);
-        const allPredefinedTags = QUIZ_STEPS[2].options || [];
+        const allPredefinedTags = Object.values(moodToTagsMap).flat();
         // Keep tags that are either in available tags or are custom (not in predefined list)
-        const filteredTags = answers.tags.filter(tag => 
+        const filteredTags = answers.tags.filter(tag =>
           availableTags.includes(tag) || !allPredefinedTags.includes(tag)
         );
         setAnswers({
@@ -287,7 +313,7 @@ export default function QuizScreen() {
           tags: filteredTags,
         });
       } else {
-         setAnswers({ ...answers, [currentQuestion.key]: newAnswersList });
+        setAnswers({ ...answers, [currentQuestion.key]: newAnswersList });
       }
 
     } else {
@@ -313,7 +339,7 @@ export default function QuizScreen() {
       setAnswers({ ...answers, [currentQuestion.key]: trimmedValue || undefined });
       console.log('Saved similarTo (4th question):', trimmedValue || '(empty/skipped)');
     }
-    
+
     if (currentStep < QUIZ_STEPS.length - 1) {
       setCurrentStep(currentStep + 1);
       // Reset input when moving to next question
@@ -358,11 +384,11 @@ export default function QuizScreen() {
       // Get language preference
       const language = useLanguageStore.getState().language;
       const languageCode = language === 'ru' ? 'ru-RU' : 'en-US';
-      
+
       // CRITICAL: Ensure similarTo (4th question) is captured - check both answers state and input state
       // This handles the case where user typed something but didn't click Next (just clicked Submit)
       const similarToValue = answers.similarTo || (similarToInput && similarToInput.trim() ? similarToInput.trim() : undefined);
-      
+
       console.log('Submitting quiz with ALL 5 answers:', {
         '1. Context': answers.context || 'Один',
         '2. Moods': answers.moods,
@@ -381,7 +407,7 @@ export default function QuizScreen() {
       });
 
       console.log('Recommendations received:', response);
-      
+
       if (!response || !Array.isArray(response) || response.length === 0) {
         throw new Error('No recommendations received');
       }
@@ -389,7 +415,7 @@ export default function QuizScreen() {
       // Navigate only after API call is complete
       router.push({
         pathname: '/results',
-        params: { 
+        params: {
           movies: JSON.stringify(response),
           quizAnswers: JSON.stringify({
             context: answers.context || 'Один',
@@ -408,14 +434,14 @@ export default function QuizScreen() {
         response: error.response?.data,
         status: error.response?.status,
       });
-      
+
       let errorMessage = 'Ошибка получения рекомендаций. Попробуйте снова.';
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
         errorMessage = 'Запрос занял слишком много времени. Попробуйте снова.';
       } else if (error.message?.includes('Network Error')) {
         errorMessage = 'Ошибка подключения к серверу. Проверьте подключение.';
       }
-      
+
       alert(errorMessage);
       setLoading(false);
     }
@@ -462,131 +488,142 @@ export default function QuizScreen() {
         style={styles.keyboardAvoidingView}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
       >
-      <ScrollView
+        <ScrollView
           ref={scrollViewRef}
-        contentContainerStyle={[styles.content, { paddingBottom: 80 }]}
-        showsVerticalScrollIndicator={false}
+          contentContainerStyle={[styles.content, { paddingBottom: 80 }]}
+          showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           contentInsetAdjustmentBehavior="automatic"
-      >
-        <Text style={styles.question}>{currentQuestion.question}</Text>
-        {currentQuestion.optional && !currentQuestion.input && (
-          <Text style={styles.optionalText}>(необязательно)</Text>
-        )}
+        >
+          <Text style={styles.question}>{currentQuestion.question}</Text>
+          {currentQuestion.optional && !currentQuestion.input && (
+            <Text style={styles.optionalText}>(необязательно)</Text>
+          )}
 
-        {currentQuestion.input ? (
-          <View style={styles.inputContainer}>
-            <StyledInput
-              value={similarToInput}
-              onChangeText={setSimilarToInput}
-              placeholder="про криминальные разборки в Корее..."
-              autoCapitalize="words"
-            />
-            <Pressable
-              onPress={handleSkip}
-              style={styles.skipButton}
-            >
-              <Text style={styles.skipButtonText}>Пропустить</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={styles.optionsContainer}>
-            {(currentQuestion.key === 'tags' ? getAvailableTags() : currentQuestion.options)?.map((option) => (
+          {currentQuestion.input ? (
+            <View style={styles.inputContainer}>
+              <StyledInput
+                value={similarToInput}
+                onChangeText={setSimilarToInput}
+                placeholder={currentQuestion.placeholder || "Хочу как Криминальный город, криминальная комедия Южной Кореи"}
+                placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                autoCapitalize="words"
+                style={styles.transparentPlaceholder}
+                multiline={true}
+                numberOfLines={2}
+              />
+
               <Pressable
-                key={option}
-                onPress={() => handleAnswer(option)}
-                style={[
-                  styles.optionButton,
-                  isSelected(option) && styles.optionButtonSelected,
-                ]}
+                onPress={handleSkip}
+                style={styles.skipButton}
               >
-                <Text
-                  style={[
-                    styles.optionText,
-                    isSelected(option) && styles.optionTextSelected,
-                  ]}
-                >
-                  {option}
-                </Text>
+                <Text style={styles.skipButtonText}>Пропустить</Text>
               </Pressable>
-            ))}
-            
-            {/* Custom tag input for Question 3 */}
-            {currentQuestion.key === 'tags' && (
-              <View 
-                ref={customTagInputRef}
-                style={styles.customTagContainer}
-              >
-                <Text style={styles.customTagLabel}>Или добавьте свой вариант:</Text>
-                <View style={styles.customTagInputRow}>
-                  <View style={styles.customTagInputWrapper}>
-                    <StyledInput
-                      value={customTagInput}
-                      onChangeText={setCustomTagInput}
-                      placeholder="Введите свой тег..."
-                      autoCapitalize="words"
-                      onFocus={() => {
-                        // Scroll to bottom when input is focused to show it above keyboard
-                        setTimeout(() => {
-                          scrollViewRef.current?.scrollToEnd({ animated: true });
-                        }, 100);
-                      }}
-                    />
-                  </View>
+            </View>
+          ) : (
+            <View style={styles.optionsContainer}>
+              {currentQuestion.key === 'tags' && answers.moods.length === 0 ? (
+                <Text style={styles.noTagsMessage}>
+                  Сначала выберите ощущения в предыдущем вопросе
+                </Text>
+              ) : (
+                (currentQuestion.key === 'tags' ? getAvailableTags() : currentQuestion.options || [])?.map((option) => (
                   <Pressable
-                    onPress={() => {
-                      if (customTagInput.trim() && 
-                          (answers.tags.length < (currentQuestion.maxSelections || 2))) {
-                        const customTag = customTagInput.trim();
-                        const currentTags = answers.tags || [];
-                        if (!currentTags.includes(customTag)) {
-                          setAnswers({
-                            ...answers,
-                            tags: [...currentTags, customTag],
-                          });
-                          setCustomTagInput('');
-                        }
-                      }
-                    }}
-                    disabled={
-                      !customTagInput.trim() || 
-                      (answers.tags.length >= (currentQuestion.maxSelections || 2))
-                    }
+                    key={option}
+                    onPress={() => handleAnswer(option)}
                     style={[
-                      styles.addCustomTagButton,
-                      (!customTagInput.trim() || 
-                       answers.tags.length >= (currentQuestion.maxSelections || 2)) && 
-                      styles.addCustomTagButtonDisabled
+                      styles.optionButton,
+                      isSelected(option) && styles.optionButtonSelected,
                     ]}
                   >
-                    <Ionicons 
-                      name="add" 
-                      size={20} 
-                      color={
-                        (!customTagInput.trim() || 
-                         answers.tags.length >= (currentQuestion.maxSelections || 2))
-                          ? theme.colors.textSecondary 
-                          : theme.colors.primary
-                      } 
-                    />
+                    <Text
+                      style={[
+                        styles.optionText,
+                        isSelected(option) && styles.optionTextSelected,
+                      ]}
+                    >
+                      {option}
+                    </Text>
                   </Pressable>
-                </View>
-              </View>
-            )}
-          </View>
-        )}
+                ))
+              )}
 
-        {currentQuestion.multiple && (
-          <Text style={styles.hint}>
-            Выбрано:{' '}
-            {((answers[currentQuestion.key] as string[]) || []).length} /{' '}
-            {currentQuestion.maxSelections}
-          </Text>
-        )}
-      </ScrollView>
+              {/* Custom tag input for Question 3 */}
+              {currentQuestion.key === 'tags' && (
+                <View
+                  ref={customTagInputRef}
+                  style={styles.customTagContainer}
+                >
+                  <Text style={styles.customTagLabel}>Или добавьте свой вариант:</Text>
+                  <View style={styles.customTagInputRow}>
+                    <View style={styles.customTagInputWrapper}>
+                      <StyledInput
+                        value={customTagInput}
+                        onChangeText={setCustomTagInput}
+                        placeholder="Введите свой тег..."
+                        autoCapitalize="words"
+                        onFocus={() => {
+                          // Scroll to bottom when input is focused to show it above keyboard
+                          setTimeout(() => {
+                            scrollViewRef.current?.scrollToEnd({ animated: true });
+                          }, 100);
+                        }}
+                      />
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        if (customTagInput.trim() &&
+                          (answers.tags.length < (currentQuestion.maxSelections || 2))) {
+                          const customTag = customTagInput.trim();
+                          const currentTags = answers.tags || [];
+                          if (!currentTags.includes(customTag)) {
+                            setAnswers({
+                              ...answers,
+                              tags: [...currentTags, customTag],
+                            });
+                            setCustomTagInput('');
+                          }
+                        }
+                      }}
+                      disabled={
+                        !customTagInput.trim() ||
+                        (answers.tags.length >= (currentQuestion.maxSelections || 2))
+                      }
+                      style={[
+                        styles.addCustomTagButton,
+                        (!customTagInput.trim() ||
+                          answers.tags.length >= (currentQuestion.maxSelections || 2)) &&
+                        styles.addCustomTagButtonDisabled
+                      ]}
+                    >
+                      <Ionicons
+                        name="add"
+                        size={20}
+                        color={
+                          (!customTagInput.trim() ||
+                            answers.tags.length >= (currentQuestion.maxSelections || 2))
+                            ? theme.colors.textSecondary
+                            : theme.colors.primary
+                        }
+                      />
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
+
+          {currentQuestion.multiple && (
+            <Text style={styles.hint}>
+              Выбрано:{' '}
+              {((answers[currentQuestion.key] as string[]) || []).length} /{' '}
+              {currentQuestion.maxSelections}
+            </Text>
+          )}
+        </ScrollView>
       </KeyboardAvoidingView>
 
-      <View style={[styles.footer, { 
+      <View style={[styles.footer, {
         paddingBottom: Math.max(insets.bottom, 8) + 80 // Navbar height (~60px) + safe area + extra space
       }]}>
         <Pressable
@@ -772,5 +809,15 @@ const styles = StyleSheet.create({
   addCustomTagButtonDisabled: {
     borderColor: theme.colors.border,
     opacity: 0.5,
+  },
+  transparentPlaceholder: {
+    // Placeholder text color is handled via placeholderTextColor prop
+  },
+  noTagsMessage: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.md,
+    textAlign: 'center',
+    padding: theme.spacing.lg,
+    fontStyle: 'italic',
   },
 });

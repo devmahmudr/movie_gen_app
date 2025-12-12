@@ -27,6 +27,9 @@ interface Movie {
   historyId?: string;
   isWatched?: boolean;
   isNotInterested?: boolean;
+  userRating?: number;
+  averageRating?: number;
+  ratingCount?: number;
 }
 
 export default function WatchlistDetailScreen() {
@@ -109,18 +112,18 @@ export default function WatchlistDetailScreen() {
     }
   };
 
-  const handleToggleWatched = async (movie: Movie) => {
+  const handleRate = async (movie: Movie, rating: number) => {
     if (!movie.historyId) {
       console.warn('No historyId for movie:', movie.title);
       return false;
     }
     try {
-      const updated = await historyAPI.markAsWatched(movie.historyId);
-      console.log(`Toggled watched status: ${movie.title}`, updated.isWatched);
-      setMovie(prev => prev ? { ...prev, isWatched: updated.isWatched } : null);
-      return updated.isWatched;
+      const updated = await historyAPI.rateMovie(movie.historyId, rating);
+      console.log(`Rated movie: ${movie.title}`, updated.userRating);
+      setMovie(prev => prev ? { ...prev, userRating: updated.userRating, isWatched: updated.isWatched } : null);
+      return true;
     } catch (error: any) {
-      console.error('Error toggling watched:', error);
+      console.error('Error rating movie:', error);
       throw error;
     }
   };
@@ -201,7 +204,10 @@ export default function WatchlistDetailScreen() {
               const isAdded = await handleToggleWatchlist(movie);
               return isAdded;
             }}
-            onToggleWatched={() => handleToggleWatched(movie)}
+            onRate={async (rating: number) => {
+              const success = await handleRate(movie, rating);
+              return success;
+            }}
             onToggleNotInterested={() => handleToggleNotInterested(movie)}
           />
         </Animated.View>

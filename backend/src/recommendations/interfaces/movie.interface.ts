@@ -9,6 +9,9 @@ export interface Movie {
   historyId?: string;
   isWatched?: boolean;
   isNotInterested?: boolean;
+  userRating?: number; // User's rating (1-10)
+  averageRating?: number; // Average rating from all users
+  ratingCount?: number; // Number of ratings
   overview?: string;
   country?: string;
   imdbRating?: number;

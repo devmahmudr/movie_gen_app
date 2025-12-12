@@ -119,5 +119,71 @@ export class HistoryService {
     history.isNotInterested = !history.isNotInterested;
     return this.movieHistoryRepository.save(history);
   }
+
+  async rateMovie(
+    historyId: string,
+    userId: string,
+    rating: number,
+  ): Promise<MovieHistory> {
+    const history = await this.movieHistoryRepository.findOne({
+      where: { id: historyId },
+    });
+
+    if (!history) {
+      throw new NotFoundException('History record not found');
+    }
+
+    if (history.userId !== userId) {
+      throw new ForbiddenException(
+        'You do not have permission to update this record',
+      );
+    }
+
+    // Validate rating
+    if (rating < 1 || rating > 10) {
+      throw new Error('Rating must be between 1 and 10');
+    }
+
+    // Set rating and mark as watched (since user rated it, they've watched it)
+    history.userRating = rating;
+    history.isWatched = true;
+    return this.movieHistoryRepository.save(history);
+  }
+
+  async getAverageRating(movieId: string): Promise<{ average: number; count: number } | null> {
+    const result = await this.movieHistoryRepository
+      .createQueryBuilder('history')
+      .select('AVG(history.userRating)', 'average')
+      .addSelect('COUNT(history.userRating)', 'count')
+      .where('history.movieId = :movieId', { movieId })
+      .andWhere('history.userRating IS NOT NULL')
+      .getRawOne();
+
+    if (!result || !result.average) {
+      return null;
+    }
+
+    return {
+      average: parseFloat(result.average),
+      count: parseInt(result.count, 10),
+    };
+  }
+
+  async getMovieRatings(movieId: string): Promise<{ rating: number; count: number }[]> {
+    const results = await this.movieHistoryRepository
+      .createQueryBuilder('history')
+      .select('history.userRating', 'rating')
+      .addSelect('COUNT(*)', 'count')
+      .where('history.movieId = :movieId', { movieId })
+      .andWhere('history.userRating IS NOT NULL')
+      .groupBy('history.userRating')
+      .orderBy('history.userRating', 'DESC')
+      .getRawMany();
+
+    return results.map((r) => ({
+      rating: r.rating,
+      count: parseInt(r.count, 10),
+    }));
+  }
 }
 

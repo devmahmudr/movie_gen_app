@@ -45,10 +45,11 @@ export default function RootLayout() {
     // Let the quiz screen handle the auth check when generating recommendations
   }, [token, isLoading, segments, router]);
 
-  // Hide navbar on onboarding and auth pages
+  // Hide navbar on onboarding and auth pages, or if user is not authenticated
   const hideNavbar = pathname === '/' || 
                      pathname === '/index' || 
-                     pathname?.startsWith('/(auth)');
+                     pathname?.startsWith('/(auth)') ||
+                     !token; // Hide navbar if user is not authenticated
 
   if (isLoading) {
     return (
@@ -129,8 +130,8 @@ export default function RootLayout() {
           }}
         />
         </Stack>
-        {/* BottomNavbar - visible on all pages except onboarding and auth */}
-        {!hideNavbar && <BottomNavbar />}
+        {/* BottomNavbar - visible only when authenticated and not on onboarding/auth pages */}
+        {!hideNavbar && token && <BottomNavbar />}
       </View>
     </SafeAreaProvider>
   );

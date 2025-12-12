@@ -1,6 +1,8 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
+import axios, { isAxiosError } from 'axios';
+// Cache removed from project
+import { RECOMMENDATION_CONFIG } from '../constants/recommendation.config';
 
 export interface TMDbMovieResult {
   id: number;
@@ -11,11 +13,14 @@ export interface TMDbMovieResult {
 
 @Injectable()
 export class TMDbService {
+  private readonly logger = new Logger(TMDbService.name);
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly youtubeApiKey: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+  ) {
     this.apiKey = this.configService.get<string>('TMDB_API_KEY');
     this.baseUrl =
       this.configService.get<string>('TMDB_BASE_URL') ||
@@ -24,12 +29,59 @@ export class TMDbService {
   }
 
   /**
+   * Log HTTP request details (removed - only errors logged)
+   */
+  private logRequest(method: string, url: string, params?: any, data?: any) {
+    // Logging removed per requirements
+  }
+
+  /**
+   * Log HTTP response details (removed - only errors logged)
+   */
+  private logResponse(method: string, url: string, status: number, data: any, duration?: number) {
+    // Logging removed per requirements
+  }
+
+  /**
+   * Log HTTP error details
+   */
+  private logError(method: string, url: string, error: any) {
+    this.logger.error(`[HTTP ERROR] ${method} ${url}`, error.stack, 'TMDbService', {
+      method,
+      url,
+      errorMessage: error.message,
+      errorCode: error.code,
+      responseStatus: error.response?.status,
+      responseData: error.response?.data,
+    });
+  }
+
+  /**
    * Search for a movie by title and year
+   * This method's only responsibility is to find the correct movie ID.
+   * All data fetching is delegated to getMovieDetails, which is the single source of truth.
    * @param title Movie title
    * @param year Optional year for better matching
    * @param language Optional language code (defaults to 'ru-RU')
-   * @returns TMDb movie result with ID and poster path
+   * @returns TMDb movie result with ID and all metadata from getMovieDetails
    */
+  /**
+   * Normalize title for fuzzy matching
+   * Removes special characters, spaces, and converts to lowercase
+   */
+  private normalizeTitle(title: string): string {
+    return title.toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  /**
+   * Check if two titles match using fuzzy matching
+   */
+  private titlesMatch(title1: string, title2: string): boolean {
+    const normalized1 = this.normalizeTitle(title1);
+    const normalized2 = this.normalizeTitle(title2);
+    return normalized1 === normalized2;
+  }
+
   async searchMovie(
     title: string,
     year?: number,
@@ -46,202 +98,281 @@ export class TMDbService {
     runtime?: number;
     ageRating?: string;
   } | null> {
-    try {
-      const searchUrl = `${this.baseUrl}/search/movie`;
-      const params: any = {
-        api_key: this.apiKey,
-        query: title,
-        language: language,
-        page: 1,
-      };
+    const startTime = Date.now();
 
+    try {
+      // Step 1: Search TMDb to find the correct Movie ID. This is the only goal of this step.
+      const searchUrl = `${this.baseUrl}/search/movie`;
+      const params: any = { api_key: this.apiKey, query: title, language, page: 1 };
       if (year) {
         params.year = year;
       }
 
-      console.log(`[TMDb] Searching for: "${title}" (${year || 'no year'})`);
-      const response = await axios.get(searchUrl, { params });
+      const response = await axios.get(searchUrl, { params, timeout: 4000 });
 
-      if (
-        !response.data ||
-        !response.data.results ||
-        response.data.results.length === 0
-      ) {
-        console.warn(`[TMDb] No results found for: "${title}"`);
+      if (!response.data?.results || response.data.results.length === 0) {
         return null;
       }
 
-      // Get the first result (most relevant)
-      const movie = response.data.results[0] as TMDbMovieResult;
-      console.log(`[TMDb] Found movie: ${movie.title} (ID: ${movie.id})`);
+      // Step 1.5: Find the best match using fuzzy matching
+      // Try to find an exact or fuzzy match from the search results
+      let bestMatch = null;
+      const normalizedSearchTitle = this.normalizeTitle(title);
 
-      // Fetch full details to get genres, overview, country, and IMDb rating
-      const details = await this.getMovieDetails(movie.id.toString(), language);
+      // First, try exact match (case-insensitive)
+      for (const result of response.data.results) {
+        if (this.titlesMatch(title, result.title)) {
+          bestMatch = result;
+          break;
+        }
+      }
 
-      return {
-        movieId: movie.id.toString(),
-        title: movie.title,
-        posterPath: movie.poster_path
-          ? `https://image.tmdb.org/t/p/w500${movie.poster_path}`
-          : '',
-        genres: details?.genres || [],
-        releaseYear: movie.release_date ? movie.release_date.split('-')[0] : '',
-        overview: details?.overview,
-        country: details?.country,
-        imdbRating: details?.imdbRating,
-        runtime: details?.runtime,
-        ageRating: details?.ageRating,
+      // If no exact match, try fuzzy match (normalized comparison)
+      if (!bestMatch) {
+        for (const result of response.data.results) {
+          const normalizedResultTitle = this.normalizeTitle(result.title);
+          if (normalizedSearchTitle === normalizedResultTitle) {
+            bestMatch = result;
+            break;
+          }
+        }
+      }
+
+      // If still no match, use the first result (TMDb's best guess)
+      if (!bestMatch) {
+        bestMatch = response.data.results[0];
+      }
+
+      // We found a potential match. Get its ID.
+      const foundMovieId = bestMatch.id.toString();
+
+      // --- Step 2: Use the found ID to get the definitive, cached, and complete movie details. ---
+      // This is now the SINGLE SOURCE OF TRUTH for all movie metadata.
+      const details = await this.getMovieDetails(foundMovieId, language);
+
+      // If getMovieDetails fails for any reason (including caching issues or API errors), we fail the search.
+      if (!details) {
+        return null;
+      }
+
+      // --- Step 3: Assemble the final result using ONLY data from the details object. ---
+      // The details object now contains the posterPath and the correct title.
+      const result = {
+        movieId: foundMovieId,
+        title: details.title || response.data.results[0].title, // Fallback to search title just in case
+        posterPath: details.posterPath || '',
+
+        // All other metadata comes directly from our robust details call.
+        genres: details.genres,
+        releaseYear: details.releaseYear,
+        overview: details.overview,
+        country: details.country,
+        imdbRating: details.imdbRating,
+        runtime: details.runtime,
+        ageRating: details.ageRating,
       };
+
+      const duration = Date.now() - startTime;
+
+      return result;
     } catch (error) {
-      console.error(`[TMDb] Search error for "${title}":`, error.message);
+      this.logError('GET', `${this.baseUrl}/search/movie`, error);
+      this.logger.error(`[TMDb] Critical search error for "${title}"`, error.stack, 'TMDbService');
       return null;
     }
   }
 
   /**
-   * Get movie details by TMDb ID
-   * @param movieId TMDb movie ID
-   * @returns Movie details with poster path
-   */
-  /**
-   * Get movie details by TMDb ID including genres, overview, country, and IMDb rating
+   * Get movie details by TMDb ID - CACHE-FIRST, STATELESS VERSION
+   * This is the single source of truth for all movie metadata. It is atomic, cached, and stateless.
    * @param movieId TMDb movie ID
    * @param language Optional language code (defaults to 'ru-RU')
-   * @returns Movie details with genres, overview, country, and IMDb rating
+   * @returns Movie details with genres, overview, country, IMDb rating, poster, and title
    */
   async getMovieDetails(
     movieId: string,
     language: string = 'ru-RU',
   ): Promise<{
     genres: string[];
-    overview?: string;
-    country?: string;
+    overview: string;
+    country: string;
     imdbRating?: number;
     runtime?: number;
     ageRating?: string;
+    releaseYear: string;
+    posterPath?: string;
+    title?: string;
   } | null> {
+    // Cache removed - fetching fresh data
+
     try {
+      // Step 2: Fetch data from TMDb. All variables are local to this function scope.
       const movieUrl = `${this.baseUrl}/movie/${movieId}`;
-      const response = await axios.get(movieUrl, {
-        params: {
-          api_key: this.apiKey,
-          language: language,
-          append_to_response: 'external_ids,release_dates',
-        },
-      });
+      const params = {
+        api_key: this.apiKey,
+        language,
+        append_to_response: 'external_ids,release_dates',
+      };
 
-      const genres = response.data.genres?.map((g: any) => g.name) || [];
-      const overview = response.data.overview || '';
+      const response = await axios.get(movieUrl, { params, timeout: 5000 });
 
-      // Get country from production_countries (first country)
-      const country = response.data.production_countries?.[0]?.name || '';
-
-      // Get runtime in minutes
-      const runtime = response.data.runtime || undefined;
-
-      // Get certification/age rating from release_dates
-      // Prefer numeric age ratings (EU/RU format: 0+, 6+, 12+, 16+, 18+)
-      let ageRating: string | undefined;
-      try {
-        const releaseDates = response.data.release_dates?.results || [];
-
-        // Mapping of US certifications to numeric age ratings
-        const usCertToAge: { [key: string]: string } = {
-          'G': '0+',
-          'PG': '7+',
-          'PG-13': '13+',
-          'R': '18+',
-          'NC-17': '18+',
-        };
-
-        // Try to find numeric ratings first (EU countries, Russia, etc.)
-        const numericRatingCountries = ['RU', 'DE', 'FR', 'GB', 'ES', 'IT', 'NL', 'BE', 'PL', 'CZ', 'SE', 'NO', 'DK', 'FI'];
-        for (const countryCode of numericRatingCountries) {
-          const countryRelease = releaseDates.find((r: any) => r.iso_3166_1 === countryCode);
-          const cert = countryRelease?.release_dates?.find((rd: any) => rd.certification)?.certification;
-          if (cert) {
-            // Check if it's already numeric (contains + or is a number)
-            if (/^\d+\+?$/.test(cert) || cert.includes('+')) {
-              ageRating = cert.includes('+') ? cert : `${cert}+`;
-              break;
-            }
-          }
-        }
-
-        // If no numeric rating found, try US and convert it
-        if (!ageRating) {
-          const usRelease = releaseDates.find((r: any) => r.iso_3166_1 === 'US');
-          const usCert = usRelease?.release_dates?.find((rd: any) => rd.certification)?.certification;
-          if (usCert && usCertToAge[usCert]) {
-            ageRating = usCertToAge[usCert];
-          } else if (usCert) {
-            // If it's an unknown US cert, try to parse it as numeric or default to 18+
-            ageRating = /^\d+\+?$/.test(usCert) ? (usCert.includes('+') ? usCert : `${usCert}+`) : '18+';
-          }
-        }
-
-        // Last resort: try any other certification
-        if (!ageRating) {
-          for (const release of releaseDates) {
-            const cert = release.release_dates?.find((rd: any) => rd.certification)?.certification;
-            if (cert) {
-              if (/^\d+\+?$/.test(cert)) {
-                ageRating = cert.includes('+') ? cert : `${cert}+`;
-                break;
-              }
-            }
-          }
-        }
-      } catch (certError) {
-        console.log(`[TMDb] Could not fetch certification for ${movieId}`);
+      const data = response.data;
+      if (!data || !data.id || data.id.toString() !== movieId) {
+        this.logger.error(`TMDb response error! Requested: ${movieId}, but got data for: ${data?.id}`, '', 'TMDbService', {
+          requestedMovieId: movieId,
+          receivedMovieId: data?.id,
+        });
+        return null;
       }
 
-      // Get IMDb ID and fetch rating
-      const imdbId = response.data.external_ids?.imdb_id;
+      // --- Step 3: Extract data into local variables. This is critical for isolation. ---
+      const genres = data.genres?.map((g: any) => g.name) || [];
+      const overview = data.overview || '';
+      const country = data.production_countries?.[0]?.name || '';
+      const runtime = data.runtime || undefined;
+      const releaseYear = data.release_date ? data.release_date.split('-')[0] : '';
+      const imdbId = data.external_ids?.imdb_id;
+      // CRITICAL: Get poster path from the full movie details to ensure it matches the movie ID
+      const posterPath = data.poster_path
+        ? `https://image.tmdb.org/t/p/w500${data.poster_path}`
+        : undefined;
+      const title = data.title || undefined;
+
+      // --- Step 4: Perform sub-tasks to get more data ---
+
+      // Fetch IMDb rating (can fail gracefully)
       let imdbRating: number | undefined;
-
-      if (imdbId) {
+      if (imdbId && this.configService.get('OMDB_API_KEY')) {
         try {
-          // Fetch IMDb rating from OMDb API (free tier available)
-          // Alternative: Use TMDb's own rating if available
-          // For now, we'll use vote_average as a fallback and try to get IMDb rating
-          const omdbResponse = await axios.get(`http://www.omdbapi.com/`, {
-            params: {
-              i: imdbId,
-              apikey: process.env.OMDB_API_KEY || '', // Optional: add OMDb API key to env
-            },
-            timeout: 3000, // 3 second timeout
+          const omdbRes = await axios.get(`http://www.omdbapi.com/`, {
+            params: { i: imdbId, apikey: this.configService.get('OMDB_API_KEY') },
+            timeout: 3000,
           });
-
-          if (omdbResponse.data?.imdbRating) {
-            imdbRating = parseFloat(omdbResponse.data.imdbRating);
+          if (omdbRes.data?.imdbRating && omdbRes.data.imdbRating !== 'N/A') {
+            imdbRating = parseFloat(omdbRes.data.imdbRating);
           }
-        } catch (omdbError) {
-          // If OMDb fails, use TMDb vote_average as fallback (scale to 10)
-          console.log(`[TMDb] OMDb API not available, using TMDb rating for ${movieId}`);
-          if (response.data.vote_average) {
-            imdbRating = parseFloat((response.data.vote_average * 1.111).toFixed(1)); // Scale 0-9 to 0-10
-          }
+        } catch {
+          // Fail silently - OMDb is optional
         }
-      } else if (response.data.vote_average) {
-        // Fallback to TMDb rating if no IMDb ID
-        imdbRating = parseFloat((response.data.vote_average * 1.111).toFixed(1));
+      }
+      if (!imdbRating && data.vote_average) {
+        imdbRating = parseFloat(data.vote_average.toFixed(1));
       }
 
-      console.log(`[TMDb] Details for movie ${movieId}:`, {
+      // Parse Age Rating (this is a self-contained operation)
+      const ageRating = this.parseAgeRating(data.release_dates?.results);
+
+      // Step 5: Assemble the final result object.
+      const result = {
         genres,
-        hasOverview: !!overview,
+        overview,
         country,
         imdbRating,
         runtime,
         ageRating,
-      });
+        releaseYear,
+        posterPath,
+        title
+      };
 
-      return { genres, overview, country, imdbRating, runtime, ageRating };
+      // Cache removed - data returned directly
+
+      return result;
+
     } catch (error) {
-      console.error(`[TMDb] Get movie details error for ID "${movieId}":`, error.message);
+      const status = isAxiosError(error) ? error.response?.status : 'unknown';
+      this.logger.error(`Failed to get details for movie ${movieId}. Status: ${status}`, error.stack, 'TMDbService');
       return null;
     }
+  }
+
+  /**
+   * Parse age rating from release dates - extracted as private method for isolation
+   * This function intelligently searches for and prioritizes meaningful age ratings
+   * across multiple regions, ignoring empty certifications.
+   */
+  private parseAgeRating(releaseDates: any[]): string | undefined {
+    if (!releaseDates || !Array.isArray(releaseDates) || releaseDates.length === 0) {
+      return undefined;
+    }
+
+    // Mapping of US MPA certifications to a common format
+    const usCertToAge: { [key: string]: string } = {
+      'G': '0+',
+      'PG': '6+',
+      'PG-13': '12+',
+      'R': '16+',
+      'NC-17': '18+',
+    };
+
+    // Helper to find the best certification for a given country's data
+    const findBestCertification = (countryData: any): string | null => {
+      if (!countryData || !Array.isArray(countryData.release_dates)) {
+        return null;
+      }
+
+      // Priority order for release types (Theatrical > Digital > Premiere)
+      const typePriority = [3, 4, 1, 2, 5, 6];
+
+      for (const type of typePriority) {
+        const release = countryData.release_dates.find((rd: any) => rd.type === type);
+        // CRITICAL FIX: Only consider a certification if it is a non-empty string.
+        if (
+          release &&
+          release.certification &&
+          typeof release.certification === 'string' &&
+          release.certification.trim() !== ''
+        ) {
+          return release.certification.trim();
+        }
+      }
+      return null; // No meaningful certification found for this country
+    };
+
+    // --- SEARCH STRATEGY ---
+    // Priority 1: Search high-priority numeric-rating countries (Russia is top)
+    const priorityCountries = ['RU', 'DE', 'FR', 'ES', 'GB', 'BR'];
+    for (const countryCode of priorityCountries) {
+      const countryData = releaseDates.find((r: any) => r.iso_3166_1 === countryCode);
+      const cert = findBestCertification(countryData);
+      if (cert) {
+        // Check for a simple number (e.g., "16")
+        const numericMatch = cert.match(/^(\d+)$/);
+        if (numericMatch) {
+          return `${numericMatch[1]}+`;
+        }
+        // Check for formats like "12+", "18+", etc.
+        if (/^\d+\+$/.test(cert)) {
+          return cert;
+        }
+      }
+    }
+
+    // Priority 2: Check the United States (US) and convert its rating. This is very reliable.
+    const usData = releaseDates.find((r: any) => r.iso_3166_1 === 'US');
+    const usCert = findBestCertification(usData);
+    if (usCert && usCertToAge[usCert]) {
+      return usCertToAge[usCert];
+    }
+
+    // Priority 3: Last resort. Iterate through ALL remaining countries and take the first valid-looking numeric rating.
+    for (const countryData of releaseDates) {
+      // Skip countries we've already checked
+      if (priorityCountries.includes(countryData.iso_3166_1) || countryData.iso_3166_1 === 'US') {
+        continue;
+      }
+
+      const cert = findBestCertification(countryData);
+      if (cert) {
+        const numericMatch = cert.match(/^(\d+)/); // Match the first number found (e.g., "12A")
+        if (numericMatch) {
+          return `${numericMatch[1]}+`;
+        }
+      }
+    }
+
+    // If no rating is found after all checks, return undefined.
+    return undefined;
   }
 
   /**
@@ -251,23 +382,26 @@ export class TMDbService {
    * @returns YouTube video key or null
    */
   async getMovieVideos(movieId: string, language: string = 'ru-RU'): Promise<string | null> {
+    const startTime = Date.now();
     try {
       const videosUrl = `${this.baseUrl}/movie/${movieId}/videos`;
 
       // First, try with the requested language
+      const params1 = {
+        api_key: this.apiKey,
+        language: language,
+      };
       let response = await axios.get(videosUrl, {
-        params: {
-          api_key: this.apiKey,
-          language: language,
-        },
+        params: params1,
       });
 
       // If no results, try without language parameter (gets all languages)
       if (!response.data?.results || response.data.results.length === 0) {
+        const params2 = {
+          api_key: this.apiKey,
+        };
         response = await axios.get(videosUrl, {
-          params: {
-            api_key: this.apiKey,
-          },
+          params: params2,
         });
       }
 
@@ -298,7 +432,6 @@ export class TMDbService {
         );
 
         if (video) {
-          console.log(`[TMDb] Found ${type} in ${targetLanguageCode} for movie ${movieId}: ${video.key}`);
           return video.key;
         }
       }
@@ -313,7 +446,6 @@ export class TMDbService {
         );
 
         if (video) {
-          console.log(`[TMDb] Found unofficial ${type} in ${targetLanguageCode} for movie ${movieId}: ${video.key}`);
           return video.key;
         }
       }
@@ -328,7 +460,6 @@ export class TMDbService {
         );
 
         if (video) {
-          console.log(`[TMDb] Found ${type} (fallback, not in ${targetLanguageCode}) for movie ${movieId}: ${video.key}`);
           return video.key;
         }
       }
@@ -342,7 +473,6 @@ export class TMDbService {
         );
 
         if (video) {
-          console.log(`[TMDb] Found unofficial ${type} (fallback) for movie ${movieId}: ${video.key}`);
           return video.key;
         }
       }
@@ -350,15 +480,23 @@ export class TMDbService {
       // Last resort: any YouTube video
       const anyYouTubeVideo = videos.find((v: any) => v.site === 'YouTube');
       if (anyYouTubeVideo) {
-        console.log(`[TMDb] Found any YouTube video (last resort) for movie ${movieId}: ${anyYouTubeVideo.key}`);
         return anyYouTubeVideo.key;
       }
 
       return null;
     } catch (error) {
-      console.error(
-        `TMDb get videos error for ID "${movieId}":`,
-        error.message,
+      const duration = Date.now() - startTime;
+      this.logError('GET', `${this.baseUrl}/movie/${movieId}/videos`, error);
+      this.logger.error(
+        `TMDb get videos error for ID "${movieId}"`,
+        error.stack,
+        'TMDbService',
+        {
+          movieId,
+          language,
+          error: error.message,
+          duration: `${duration}ms`,
+        },
       );
       return null;
     }
@@ -370,29 +508,43 @@ export class TMDbService {
    * @returns Object with Russian and English titles
    */
   async getMovieTitles(movieId: string): Promise<{ titleRu: string; titleEn: string } | null> {
+    const startTime = Date.now();
     try {
       // Fetch Russian title
-      const ruResponse = await axios.get(`${this.baseUrl}/movie/${movieId}`, {
-        params: {
-          api_key: this.apiKey,
-          language: 'ru-RU',
-        },
+      const ruUrl = `${this.baseUrl}/movie/${movieId}`;
+      const ruParams = {
+        api_key: this.apiKey,
+        language: 'ru-RU',
+      };
+      const ruResponse = await axios.get(ruUrl, {
+        params: ruParams,
       });
 
       // Fetch English title
-      const enResponse = await axios.get(`${this.baseUrl}/movie/${movieId}`, {
-        params: {
-          api_key: this.apiKey,
-          language: 'en-US',
-        },
+      const enUrl = `${this.baseUrl}/movie/${movieId}`;
+      const enParams = {
+        api_key: this.apiKey,
+        language: 'en-US',
+      };
+
+      const enResponse = await axios.get(enUrl, {
+        params: enParams,
       });
 
-      return {
+      const result = {
         titleRu: ruResponse.data?.title || '',
         titleEn: enResponse.data?.title || '',
       };
+
+      return result;
     } catch (error) {
-      console.error(`[TMDb] Error fetching titles for movie ${movieId}:`, error.message);
+      const duration = Date.now() - startTime;
+      this.logError('GET', `${this.baseUrl}/movie/${movieId}`, error);
+      this.logger.error(`[TMDb] Error fetching titles for movie ${movieId}`, error.stack, 'TMDbService', {
+        movieId,
+        error: error.message,
+        duration: `${duration}ms`,
+      });
       return null;
     }
   }
@@ -410,10 +562,10 @@ export class TMDbService {
     interfaceLanguage: string = 'ru',
   ): Promise<string | null> {
     if (!this.youtubeApiKey) {
-      console.warn('[YouTube] API key not configured, skipping YouTube search');
       return null;
     }
 
+    const startTime = Date.now();
     try {
       const isRussianInterface = interfaceLanguage.toLowerCase() === 'ru' || interfaceLanguage.toLowerCase().startsWith('ru');
 
@@ -431,20 +583,23 @@ export class TMDbService {
         searchQueries.push(`${movieTitleEn} trailer`);
       }
 
+
       // Try each query in order
       for (const query of searchQueries) {
         try {
           const searchUrl = 'https://www.googleapis.com/youtube/v3/search';
+          const params = {
+            part: 'snippet',
+            q: query,
+            type: 'video',
+            maxResults: 10, // Increased to get more candidates
+            key: this.youtubeApiKey,
+            videoCategoryId: '1', // Film & Animation category
+            relevanceLanguage: interfaceLanguage, // Filter results by interface language
+          };
+
           const response = await axios.get(searchUrl, {
-            params: {
-              part: 'snippet',
-              q: query,
-              type: 'video',
-              maxResults: 10, // Increased to get more candidates
-              key: this.youtubeApiKey,
-              videoCategoryId: '1', // Film & Animation category
-              relevanceLanguage: interfaceLanguage, // Filter results by interface language
-            },
+            params,
           });
 
           if (response.data?.items && response.data.items.length > 0) {
@@ -461,7 +616,6 @@ export class TMDbService {
 
                 if (combined.includes('трейлер') || combined.includes('русский')) {
                   bestMatch = item;
-                  console.log(`[YouTube] Found Russian trailer match: ${title}`);
                   break;
                 }
               }
@@ -480,21 +634,27 @@ export class TMDbService {
 
             const videoId = bestMatch.id?.videoId;
             if (videoId) {
-              console.log(`[YouTube] Found trailer for "${query}": ${videoId} (${bestMatch.snippet?.title})`);
               return videoId;
             }
           }
         } catch (error) {
-          console.warn(`[YouTube] Search failed for query "${query}":`, error.message);
           // Continue to next query
           continue;
         }
       }
 
-      console.log(`[YouTube] No trailer found for movie: ${movieTitleRus} / ${movieTitleEn}`);
+      const totalDuration = Date.now() - startTime;
       return null;
     } catch (error) {
-      console.error('[YouTube] Error searching for trailer:', error.message);
+      const duration = Date.now() - startTime;
+      this.logError('GET', 'https://www.googleapis.com/youtube/v3/search', error);
+      this.logger.error('[YouTube] Error searching for trailer', error.stack, 'TMDbService', {
+        movieTitleRus,
+        movieTitleEn,
+        interfaceLanguage,
+        error: error.message,
+        duration: `${duration}ms`,
+      });
       return null;
     }
   }

@@ -3,34 +3,44 @@ import { Platform } from 'react-native';
 import { useAuthStore } from '../store/authStore';
 
 // Determine API base URL based on environment
-// For iOS Simulator: use localhost
-// For Android Emulator: use 10.0.2.2 (Android emulator's alias for host machine)
-// For physical devices: use your computer's IP address (set via environment variable or default)
-// For Docker: backend is accessible at localhost:3000 from host machine
+// Priority:
+// 1. EXPO_PUBLIC_API_URL environment variable (set in eas.json or .env)
+// 2. Development: Detect emulator vs physical device
+// 3. Production: Use Railway URL from eas.json
 const getApiBaseUrl = (): string => {
-  // Check for environment variable first (useful for physical devices)
+  // ALWAYS check environment variable first (highest priority)
+  // This is set in eas.json for builds, or .env for Expo Go
   if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
+    const url = process.env.EXPO_PUBLIC_API_URL.trim();
+    // Ensure URL has protocol
+    if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+      return `https://${url}`;
+    }
+    return url;
   }
 
+  // Development mode - auto-detect emulator vs physical device
   if (__DEV__) {
-    // Development mode
+    // Check if running in Expo Go (development client)
+    // For Expo Go, we need the local IP address
+    // For emulators, use special addresses
+    
     if (Platform.OS === 'android') {
       // Android emulator uses 10.0.2.2 to access host machine's localhost
+      // If this doesn't work, user should set EXPO_PUBLIC_API_URL in .env
       return 'http://10.0.2.2:3000';
     } else {
       // iOS Simulator can use localhost directly
+      // For physical iOS device, user must set EXPO_PUBLIC_API_URL
       return 'http://localhost:3000';
     }
-  } else {
-    // Production mode - use environment variable or default
-    const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://your-app.up.railway.app';
-    // Ensure URL has https:// protocol
-    if (apiUrl && !apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-      return `https://${apiUrl}`;
-    }
-    return apiUrl;
   }
+
+  // Production mode - should always have EXPO_PUBLIC_API_URL set
+  // If not set, this is a configuration error
+  console.error('❌ CRITICAL: EXPO_PUBLIC_API_URL not set in production build!');
+  console.error('❌ Please set EXPO_PUBLIC_API_URL in eas.json production profile');
+  return 'https://moviegenapp-production.up.railway.app'; // Fallback (should not happen)
 };
 
 // Get API base URL and ensure it has protocol
@@ -47,23 +57,32 @@ if (API_BASE_URL.endsWith('/')) {
 
 // Always log API URL for debugging (helps diagnose production issues)
 // This runs when the module loads, so it will show in logs immediately
+const resolvedFrom = process.env.EXPO_PUBLIC_API_URL 
+  ? 'EXPO_PUBLIC_API_URL env var' 
+  : (__DEV__ 
+    ? (Platform.OS === 'android' 
+      ? 'Android emulator default (10.0.2.2:3000)' 
+      : 'iOS simulator default (localhost:3000) - For physical device, set EXPO_PUBLIC_API_URL in .env')
+    : 'Production fallback - EXPO_PUBLIC_API_URL should be set in eas.json!');
+
 console.log('🔗 API Configuration:', {
   baseURL: API_BASE_URL,
-  envVar: process.env.EXPO_PUBLIC_API_URL || 'NOT SET - THIS IS THE PROBLEM!',
+  envVar: process.env.EXPO_PUBLIC_API_URL || 'NOT SET',
   isDev: __DEV__,
   platform: Platform.OS,
-  resolvedFrom: process.env.EXPO_PUBLIC_API_URL 
-    ? 'EXPO_PUBLIC_API_URL env var' 
-    : (__DEV__ 
-      ? (Platform.OS === 'android' ? 'Android emulator default (10.0.2.2:3000)' : 'iOS simulator default (localhost:3000)')
-      : 'Production default (https://your-app.up.railway.app - PLACEHOLDER!)'),
+  resolvedFrom,
 });
 
-// Warn if using placeholder URL in production
-if (!__DEV__ && (API_BASE_URL.includes('your-app.up.railway.app') || !process.env.EXPO_PUBLIC_API_URL)) {
+// Warn if configuration might be wrong
+if (!__DEV__ && !process.env.EXPO_PUBLIC_API_URL) {
   console.error('⚠️ WARNING: EXPO_PUBLIC_API_URL is not set in production build!');
   console.error('⚠️ The app will try to connect to:', API_BASE_URL);
-  console.error('⚠️ Make sure to set EXPO_PUBLIC_API_URL in eas.json before building!');
+  console.error('⚠️ Make sure to set EXPO_PUBLIC_API_URL in eas.json production profile!');
+}
+
+if (__DEV__ && !process.env.EXPO_PUBLIC_API_URL && Platform.OS === 'ios') {
+  console.warn('💡 TIP: For physical iOS device, create .env file with:');
+  console.warn('💡 EXPO_PUBLIC_API_URL=http://YOUR_LOCAL_IP:3000');
 }
 
 export const apiClient = axios.create({
@@ -187,8 +206,9 @@ export const recommendationsAPI = {
     language?: string;
   }) => {
     // Use a longer timeout for recommendations since it involves OpenAI + TMDb calls
+    // Increased to 90 seconds to handle multiple retry attempts and parallel API calls
     const response = await apiClient.post('/recommend', data, {
-      timeout: 60000, // 60 seconds - recommendations can take time
+      timeout: 90000, // 90 seconds - recommendations can take time, especially with retries
     });
     return response.data;
   },
@@ -210,6 +230,18 @@ export const historyAPI = {
   },
   markAsNotInterested: async (historyId: string) => {
     const response = await apiClient.patch(`/history/${historyId}/not-interested`);
+    return response.data;
+  },
+  rateMovie: async (historyId: string, rating: number) => {
+    const response = await apiClient.patch(`/history/${historyId}/rating`, { rating });
+    return response.data;
+  },
+  getAverageRating: async (movieId: string) => {
+    const response = await apiClient.get(`/history/movie/${movieId}/rating`);
+    return response.data;
+  },
+  getMovieRatings: async (movieId: string) => {
+    const response = await apiClient.get(`/history/movie/${movieId}/ratings`);
     return response.data;
   },
 };

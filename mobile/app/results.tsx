@@ -26,6 +26,9 @@ interface Movie {
   historyId?: string;
   isWatched?: boolean;
   isNotInterested?: boolean;
+  userRating?: number;
+  averageRating?: number;
+  ratingCount?: number;
   overview?: string;
   country?: string;
   imdbRating?: number;
@@ -155,25 +158,25 @@ export default function ResultsScreen() {
     // The user can just swipe to the next movie
   }, []);
 
-  const handleToggleWatched = useCallback(async (movie: Movie) => {
+  const handleRate = useCallback(async (movie: Movie, rating: number) => {
     if (!movie.historyId) {
       console.warn('No historyId for movie:', movie.title);
       return false;
     }
     try {
-      const updated = await historyAPI.markAsWatched(movie.historyId);
-      console.log(`Toggled watched status: ${movie.title}`, updated.isWatched);
+      const updated = await historyAPI.rateMovie(movie.historyId, rating);
+      console.log(`Rated movie: ${movie.title}`, updated.userRating);
       // Update the movie in the movies array
       setMovies(prevMovies => 
         prevMovies.map(m => 
           m.historyId === movie.historyId 
-            ? { ...m, isWatched: updated.isWatched }
+            ? { ...m, userRating: updated.userRating, isWatched: updated.isWatched }
             : m
         )
       );
-      return updated.isWatched;
+      return true;
     } catch (error: any) {
-      console.error('Error toggling watched:', error);
+      console.error('Error rating movie:', error);
       throw error;
     }
   }, []);
@@ -262,7 +265,10 @@ export default function ResultsScreen() {
             const isAdded = await handleToggleWatchlist(movie);
             return isAdded;
           }}
-          onToggleWatched={() => handleToggleWatched(movie)}
+          onRate={async (rating: number) => {
+            const success = await handleRate(movie, rating);
+            return success;
+          }}
           onToggleNotInterested={() => handleToggleNotInterested(movie)}
           onRemove={() => handleRemove(movie)}
         />

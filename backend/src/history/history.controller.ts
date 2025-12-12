@@ -56,5 +56,28 @@ export class HistoryController {
   ) {
     return this.historyService.toggleNotInterested(historyId, req.user.id);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':historyId/rating')
+  async rateMovie(
+    @Request() req,
+    @Param('historyId') historyId: string,
+    @Body('rating', ParseIntPipe) rating: number,
+  ) {
+    if (rating < 1 || rating > 10) {
+      throw new Error('Rating must be between 1 and 10');
+    }
+    return this.historyService.rateMovie(historyId, req.user.id, rating);
+  }
+
+  @Get('movie/:movieId/rating')
+  async getAverageRating(@Param('movieId') movieId: string) {
+    return this.historyService.getAverageRating(movieId);
+  }
+
+  @Get('movie/:movieId/ratings')
+  async getMovieRatings(@Param('movieId') movieId: string) {
+    return this.historyService.getMovieRatings(movieId);
+  }
 }
 

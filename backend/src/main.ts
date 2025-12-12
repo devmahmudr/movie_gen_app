@@ -1,21 +1,28 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { LoggerService } from './common/logger/logger.service';
+import compression from 'compression';
+import { randomUUID } from 'crypto';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: false, // We'll use our custom logger
+  });
+
+  const logger = app.get(LoggerService);
+  app.useLogger(logger);
 
   // Enable CORS for mobile app with proper configuration
-  // Mobile apps (especially production builds) don't send standard web origins
-  // They may send 'null' or no origin header, so we need to allow all origins
-  // Since this is a mobile API (not a web API), we allow all origins
-  // Authentication is handled via JWT tokens, not CORS
   app.enableCors({
-    origin: true, // Allow all origins - mobile apps don't have same-origin restrictions
+    origin: true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
   });
+
+  // Enable compression
+  app.use(compression());
 
   // Global validation pipe
   app.useGlobalPipes(
@@ -26,24 +33,34 @@ async function bootstrap() {
     }),
   );
 
-  // Add request logging middleware for debugging
+  // Add request ID tracking middleware
   app.use((req, res, next) => {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] ${req.method} ${req.path}`, {
+    const requestId = (req.headers['x-request-id'] as string) || randomUUID();
+    req['requestId'] = requestId;
+    res.setHeader('X-Request-ID', requestId);
+    
+    logger.setRequestId(requestId);
+    
+    logger.log(`${req.method} ${req.path}`, 'HTTP', {
       origin: req.headers.origin || 'no-origin (mobile app)',
       'user-agent': req.headers['user-agent']?.substring(0, 50) || 'no-user-agent',
       'content-type': req.headers['content-type'] || 'no-content-type',
     });
+    
+    res.on('finish', () => {
+      logger.clearRequestId();
+    });
+    
     next();
   });
 
   const port = process.env.PORT || 3000;
-  const host = '0.0.0.0'; // Listen on all interfaces (required for Railway/cloud deployments)
+  const host = '0.0.0.0';
   await app.listen(port, host);
 
-  console.log(`Application is running on: http://${host}:${port}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`CORS: Enabled (allowing all origins for mobile apps)`);
+  logger.log(`Application is running on: http://${host}:${port}`, 'Bootstrap');
+  logger.log(`Environment: ${process.env.NODE_ENV || 'development'}`, 'Bootstrap');
+  logger.log(`CORS: Enabled (allowing all origins for mobile apps)`, 'Bootstrap');
 }
 bootstrap();
 
