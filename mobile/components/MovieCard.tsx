@@ -13,6 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { TrailerModal } from './TrailerModal';
+import { RatingModal } from './RatingModal';
 
 interface Movie {
   movieId: string;
@@ -25,6 +26,7 @@ interface Movie {
   overview?: string;
   country?: string;
   imdbRating?: number;
+  publicRating?: number; // Average rating from all users in the app
   runtime?: number; // Duration in minutes
   ageRating?: string; // Age restriction/certification (e.g., "PG-13", "R", "16+")
 }
@@ -35,10 +37,12 @@ interface MovieCardProps {
   initialIsWatched?: boolean;
   initialIsNotInterested?: boolean;
   initialIsInWatchlist?: boolean;
+  initialUserRating?: number | null;
   onWatchTrailer?: () => void;
   onToggleWatchlist?: () => Promise<boolean>;
   onToggleWatched?: () => void | Promise<boolean>;
   onToggleNotInterested?: () => void | Promise<boolean>;
+  onRate?: (rating: number) => Promise<void>;
   onRemove?: () => void;
 }
 
@@ -48,19 +52,23 @@ export const MovieCard: React.FC<MovieCardProps> = React.memo(({
   initialIsWatched = false,
   initialIsNotInterested = false,
   initialIsInWatchlist = false,
+  initialUserRating = null,
   onWatchTrailer,
   onToggleWatchlist,
   onToggleWatched,
   onToggleNotInterested,
+  onRate,
   onRemove,
 }) => {
   const [isInWatchlist, setIsInWatchlist] = useState(initialIsInWatchlist);
   const [isWatched, setIsWatched] = useState(initialIsWatched);
   const [isNotInterested, setIsNotInterested] = useState(initialIsNotInterested);
+  const [userRating, setUserRating] = useState<number | null>(initialUserRating);
   const [isToggling, setIsToggling] = useState(false);
   const [isTogglingWatched, setIsTogglingWatched] = useState(false);
   const [isTogglingNotInterested, setIsTogglingNotInterested] = useState(false);
   const [showTrailer, setShowTrailer] = useState(false);
+  const [showRatingModal, setShowRatingModal] = useState(false);
   const [isOverviewExpanded, setIsOverviewExpanded] = useState(false);
   const opacityAnim = useRef(new Animated.Value(1)).current;
 
@@ -69,6 +77,7 @@ export const MovieCard: React.FC<MovieCardProps> = React.memo(({
     setIsWatched(initialIsWatched);
     setIsNotInterested(initialIsNotInterested);
     setIsInWatchlist(initialIsInWatchlist);
+    setUserRating(initialUserRating);
     
     // Update opacity animation when isNotInterested prop changes
     if (initialIsNotInterested) {
@@ -76,7 +85,7 @@ export const MovieCard: React.FC<MovieCardProps> = React.memo(({
     } else {
       opacityAnim.setValue(1);
     }
-  }, [initialIsWatched, initialIsNotInterested, initialIsInWatchlist, opacityAnim]);
+  }, [initialIsWatched, initialIsNotInterested, initialIsInWatchlist, initialUserRating, opacityAnim]);
 
   const posterUrl = movie.posterPath.startsWith('http')
     ? movie.posterPath
@@ -127,6 +136,19 @@ export const MovieCard: React.FC<MovieCardProps> = React.memo(({
       console.error('Error toggling watched:', error);
     } finally {
       setIsTogglingWatched(false);
+    }
+  };
+
+  const handleRate = async (rating: number) => {
+    if (!onRate || !historyId) return;
+    try {
+      await onRate(rating);
+      setUserRating(rating);
+      // Once rated, mark as watched (implicitly)
+      setIsWatched(true);
+    } catch (error) {
+      console.error('Error rating movie:', error);
+      throw error;
     }
   };
 
@@ -246,12 +268,27 @@ export const MovieCard: React.FC<MovieCardProps> = React.memo(({
             </Text>
           </>
         )}
-        {movie.imdbRating && (
+        {movie.country && (
           <>
             {(movie.releaseYear || movie.runtime || movie.ageRating) && <Text style={styles.metaSeparator}> | </Text>}
+            <Text style={styles.country}>{movie.country}</Text>
+          </>
+        )}
+        {movie.imdbRating && (
+          <>
+            {(movie.releaseYear || movie.runtime || movie.ageRating || movie.country) && <Text style={styles.metaSeparator}> | </Text>}
             <View style={styles.imdbContainer}>
               <Text style={styles.imdbText}>IMDb</Text>
               <Text style={styles.imdbRating}>{movie.imdbRating.toFixed(1)}</Text>
+            </View>
+          </>
+        )}
+        {movie.publicRating && (
+          <>
+            {(movie.releaseYear || movie.runtime || movie.ageRating || movie.country || movie.imdbRating) && <Text style={styles.metaSeparator}> | </Text>}
+            <View style={styles.publicRatingContainer}>
+              <Ionicons name="star" size={14} color={theme.colors.rating} />
+              <Text style={styles.publicRating}>{movie.publicRating.toFixed(1)}</Text>
             </View>
           </>
         )}
@@ -306,16 +343,16 @@ export const MovieCard: React.FC<MovieCardProps> = React.memo(({
         {historyId && (
           <Pressable
             style={styles.actionIconButton}
-            onPress={handleToggleWatched}
+            onPress={() => setShowRatingModal(true)}
             disabled={isTogglingWatched}
           >
             <Ionicons 
-              name={isWatched ? "checkmark-circle" : "checkmark-circle-outline"} 
+              name={userRating ? "star" : "star-outline"} 
               size={24} 
-              color={isWatched ? theme.colors.primary : theme.colors.textSecondary} 
+              color={userRating ? theme.colors.rating : theme.colors.textSecondary} 
             />
-            <Text style={[styles.actionIconText, isWatched && styles.actionIconTextActive]}>
-              Уже посмотрено
+            <Text style={[styles.actionIconText, userRating !== null && userRating !== undefined && styles.actionIconTextActive]}>
+              {userRating ? `${userRating}/10` : 'Оценить'}
             </Text>
           </Pressable>
         )}
@@ -379,6 +416,16 @@ export const MovieCard: React.FC<MovieCardProps> = React.memo(({
           </Text>
         </View>
       )}
+
+      {historyId && onRate && (
+        <RatingModal
+          visible={showRatingModal}
+          currentRating={userRating}
+          onClose={() => setShowRatingModal(false)}
+          onRate={handleRate}
+          movieTitle={movie.title}
+        />
+      )}
     </Animated.View>
   );
 }, (prevProps, nextProps) => {
@@ -388,7 +435,8 @@ export const MovieCard: React.FC<MovieCardProps> = React.memo(({
     prevProps.historyId === nextProps.historyId &&
     prevProps.initialIsWatched === nextProps.initialIsWatched &&
     prevProps.initialIsNotInterested === nextProps.initialIsNotInterested &&
-    prevProps.initialIsInWatchlist === nextProps.initialIsInWatchlist
+    prevProps.initialIsInWatchlist === nextProps.initialIsInWatchlist &&
+    prevProps.initialUserRating === nextProps.initialUserRating
   );
 });
 
@@ -492,6 +540,10 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.md,
     fontWeight: '600',
   },
+  country: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.md,
+  },
   imdbContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -505,6 +557,16 @@ const styles = StyleSheet.create({
   },
   imdbRating: {
     color: theme.colors.primary,
+    fontSize: theme.fontSize.md,
+    fontWeight: '600',
+  },
+  publicRatingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  publicRating: {
+    color: theme.colors.rating,
     fontSize: theme.fontSize.md,
     fontWeight: '600',
   },

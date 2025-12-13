@@ -8,8 +8,11 @@ import {
   Text,
   Linking,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import YoutubePlayer from 'react-native-youtube-iframe';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 
@@ -72,12 +75,30 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const scaleAnim = React.useRef(new Animated.Value(0.9)).current;
 
   // Reset states every time the modal becomes visible
   useEffect(() => {
     if (visible) {
       setIsLoading(true);
       setHasError(false);
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          tension: 50,
+          friction: 7,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      fadeAnim.setValue(0);
+      scaleAnim.setValue(0.9);
     }
   }, [visible]);
 
@@ -119,83 +140,142 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({
     <Modal
       visible={visible}
       transparent={true}
-      animationType="fade"
+      animationType="none"
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
-        <View style={styles.modalContent}>
-          <Pressable style={styles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={28} color={theme.colors.text} />
-          </Pressable>
-          
-          {/* While loading, show an indicator */}
-          {isLoading && (
-            <ActivityIndicator size="large" color={theme.colors.primary} style={styles.loader} />
-          )}
+      <BlurView intensity={40} tint="dark" style={styles.blurContainer}>
+        <Animated.View
+          style={[
+            styles.container,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            },
+          ]}
+        >
+          <View style={styles.modalContent}>
+            {/* Gradient accent line */}
+            <LinearGradient
+              colors={[theme.colors.primary, theme.colors.secondary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.gradientLine}
+            />
 
-          {/* If an error occurred, render our clean fallback component */}
-          {hasError ? (
-            <ErrorFallback trailerKey={trailerKey} onClose={onClose} />
-          ) : (
-             /* Otherwise, render the player. Use a view with opacity to hide the initial flash */
-            <View style={{ opacity: isLoading ? 0 : 1 }}>
-              <YoutubePlayer
-                height={(SCREEN_WIDTH * 0.95 * 9) / 16}
-                videoId={trailerKey}
-                play={true} // Auto-play the video
-                onError={onError}
-                onReady={onReady}
-                onChangeState={onStateChange}
-                webViewProps={{
-                  // Add webView props to handle errors better
-                  onError: (syntheticEvent: any) => {
-                    const { nativeEvent } = syntheticEvent;
-                    console.warn('WebView error:', nativeEvent);
-                    if (nativeEvent?.description?.includes('embed') || 
-                        nativeEvent?.description?.includes('not allowed')) {
-                      setHasError(true);
-                      setIsLoading(false);
-                    }
-                  },
-                }}
-              />
-            </View>
-          )}
-        </View>
-      </View>
+            <Pressable style={styles.closeButton} onPress={onClose}>
+              <View style={styles.closeButtonInner}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </View>
+            </Pressable>
+            
+            {/* While loading, show an indicator */}
+            {isLoading && (
+              <View style={styles.loaderContainer}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <Text style={styles.loadingText}>Загрузка трейлера...</Text>
+              </View>
+            )}
+
+            {/* If an error occurred, render our clean fallback component */}
+            {hasError ? (
+              <ErrorFallback trailerKey={trailerKey} onClose={onClose} />
+            ) : (
+               /* Otherwise, render the player. Use a view with opacity to hide the initial flash */
+              <View style={{ opacity: isLoading ? 0 : 1 }}>
+                <YoutubePlayer
+                  height={(SCREEN_WIDTH * 0.95 * 9) / 16}
+                  videoId={trailerKey}
+                  play={true} // Auto-play the video
+                  onError={onError}
+                  onReady={onReady}
+                  onChangeState={onStateChange}
+                  webViewProps={{
+                    // Add webView props to handle errors better
+                    onError: (syntheticEvent: any) => {
+                      const { nativeEvent } = syntheticEvent;
+                      console.warn('WebView error:', nativeEvent);
+                      if (nativeEvent?.description?.includes('embed') || 
+                          nativeEvent?.description?.includes('not allowed')) {
+                        setHasError(true);
+                        setIsLoading(false);
+                      }
+                    },
+                  }}
+                />
+              </View>
+            )}
+          </View>
+        </Animated.View>
+      </BlurView>
     </Modal>
   );
 };
 
 // --- STYLES ---
 const styles = StyleSheet.create({
+  blurContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   container: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    width: '100%',
   },
   modalContent: {
     width: SCREEN_WIDTH * 0.95,
-    backgroundColor: '#000',
-    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.backgroundDark,
+    borderRadius: theme.borderRadius.xl,
     justifyContent: 'center',
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
+    shadowOpacity: 0.6,
+    shadowRadius: 25,
+    elevation: 15,
+    position: 'relative',
   },
-  loader: {
-    height: (SCREEN_WIDTH * 0.95 * 9) / 16, // Match player height
+  gradientLine: {
     position: 'absolute',
-    alignSelf: 'center',
-    zIndex: 1
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    zIndex: 1,
+  },
+  loaderContainer: {
+    height: (SCREEN_WIDTH * 0.95 * 9) / 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'absolute',
+    width: '100%',
+    zIndex: 1,
+  },
+  loadingText: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.fontSize.sm,
+    marginTop: theme.spacing.md,
   },
   closeButton: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: theme.spacing.md,
+    right: theme.spacing.md,
     zIndex: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  closeButtonInner: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     borderRadius: 20,
-    padding: 6,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   errorContainer: {
     height: (SCREEN_WIDTH * 0.95 * 9) / 16,
@@ -216,6 +296,7 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     textAlign: 'center',
     marginBottom: theme.spacing.lg,
+    lineHeight: 22,
   },
   youtubeButton: {
     flexDirection: 'row',
@@ -225,10 +306,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
     borderRadius: theme.borderRadius.md,
     gap: theme.spacing.sm,
+    shadowColor: '#FF0000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
   youtubeButtonText: {
     color: '#fff',
     fontSize: theme.fontSize.md,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });

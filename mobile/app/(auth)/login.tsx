@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,14 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StyledInput } from '../../components/StyledInput';
 import { StyledButton } from '../../components/StyledButton';
 import { authAPI } from '../../services/apiClient';
 import { useAuthStore } from '../../store/authStore';
 import { theme } from '../../constants/theme';
+import { useAlert } from '../../hooks/useAlert';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -21,7 +22,20 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { login } = useAuthStore();
+  const { showAlert, AlertComponent } = useAlert();
+
+  // Show alert if redirected from quiz
+  useEffect(() => {
+    if (params.fromQuiz === 'true' && params.message) {
+      showAlert({
+        title: 'Требуется вход',
+        message: params.message as string,
+        type: 'info',
+      });
+    }
+  }, [params.fromQuiz, params.message]);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -127,6 +141,7 @@ export default function LoginScreen() {
           </Text>
         </View>
       </ScrollView>
+      <AlertComponent />
     </KeyboardAvoidingView>
   );
 }
