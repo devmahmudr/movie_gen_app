@@ -14,6 +14,7 @@ import { MovieCard } from '../components/MovieCard';
 import { theme } from '../constants/theme';
 import { watchlistAPI, historyAPI, recommendationsAPI } from '../services/apiClient';
 import { useLanguageStore } from '../store/languageStore';
+import { useAlert } from '../hooks/useAlert';
 
 interface Movie {
   movieId: string;
@@ -26,6 +27,8 @@ interface Movie {
   historyId?: string;
   isWatched?: boolean;
   isNotInterested?: boolean;
+  userRating?: number | null;
+  publicRating?: number;
   overview?: string;
   country?: string;
   imdbRating?: number;
@@ -50,6 +53,7 @@ export default function ResultsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const flatListRef = useRef<FlatList>(null);
+  const { showAlert, AlertComponent } = useAlert();
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
 
   const [movies, setMovies] = useState<Movie[]>(() => {
@@ -104,31 +108,62 @@ export default function ResultsScreen() {
       // Make API call
       const newRecommendations = await recommendationsAPI.getRecommendations(newRecommendDto);
 
-      if (newRecommendations && Array.isArray(newRecommendations) && newRecommendations.length > 0) {
-        // Append new movies to existing list
-        setMovies(prevMovies => {
-          return [...prevMovies, ...newRecommendations];
-        });
-        
-        // Don't auto-scroll - let user scroll naturally to see new items
-        // Auto-scrolling was causing rendering issues and black screens
-        // The "Generate More" button stays at the end, so users can see new items when they scroll down
+      if (newRecommendations && Array.isArray(newRecommendations)) {
+        if (newRecommendations.length > 0) {
+          // Append new movies to existing list
+          setMovies(prevMovies => {
+            return [...prevMovies, ...newRecommendations];
+          });
+          
+          // Don't auto-scroll - let user scroll naturally to see new items
+          // Auto-scrolling was causing rendering issues and black screens
+          // The "Generate More" button stays at the end, so users can see new items when they scroll down
+        } else {
+          // No new movies found - this is acceptable, just inform the user
+          console.log('No additional recommendations found');
+          showAlert({
+            title: 'Фильмы не найдены',
+            message: 'Дополнительные фильмы не найдены. Возможно, все подходящие фильмы уже показаны. Попробуйте изменить предпочтения.',
+            type: 'info',
+          });
+        }
       } else {
-        console.error('No new recommendations received');
-        alert('Не удалось найти дополнительные фильмы. Попробуйте изменить предпочтения.');
+        console.error('Invalid response format');
+        showAlert({
+          title: 'Ошибка',
+          message: 'Не удалось получить рекомендации. Попробуйте снова.',
+          type: 'error',
+        });
       }
     } catch (error: any) {
       console.error('Error generating more recommendations:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
       
-      // Show user-friendly error message
+      // Show user-friendly error message with more specific handling
       let errorMessage = 'Не удалось найти дополнительные фильмы. Попробуйте изменить предпочтения.';
-      if (error.response?.status === 404) {
-        errorMessage = 'Не удалось найти дополнительные фильмы с такими предпочтениями. Попробуйте изменить критерии поиска.';
+      
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        errorMessage = 'Запрос занял слишком много времени. Попробуйте снова.';
+      } else if (error.message?.includes('Network Error') || error.code === 'ECONNREFUSED') {
+        errorMessage = 'Ошибка подключения к серверу. Проверьте подключение к интернету.';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Дополнительные фильмы не найдены. Возможно, все подходящие фильмы уже показаны. Попробуйте изменить критерии поиска.';
       } else if (error.response?.status === 500) {
         errorMessage = 'Ошибка сервера при поиске фильмов. Попробуйте позже.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Сессия истекла. Пожалуйста, войдите снова.';
+        // Could redirect to login here if needed
       }
       
-      alert(errorMessage);
+      showAlert({
+        message: errorMessage,
+        type: 'error',
+      });
     } finally {
       setIsGeneratingMore(false);
     }
@@ -201,6 +236,28 @@ export default function ResultsScreen() {
     }
   }, []);
 
+  const handleRate = useCallback(async (movie: Movie, rating: number) => {
+    if (!movie.historyId) {
+      console.warn('No historyId for movie:', movie.title);
+      return;
+    }
+    try {
+      const updated = await historyAPI.setRating(movie.historyId, rating);
+      console.log(`Rated movie: ${movie.title}`, updated.userRating);
+      // Update the movie in the movies array
+      setMovies(prevMovies => 
+        prevMovies.map(m => 
+          m.historyId === movie.historyId 
+            ? { ...m, userRating: updated.userRating, isWatched: true }
+            : m
+        )
+      );
+    } catch (error: any) {
+      console.error('Error rating movie:', error);
+      throw error;
+    }
+  }, []);
+
   const handleBack = () => {
     // Navigate back and ensure quiz screen resets its loading state
     router.back();
@@ -258,12 +315,14 @@ export default function ResultsScreen() {
           initialIsWatched={movie.isWatched || false}
           initialIsNotInterested={movie.isNotInterested || false}
           initialIsInWatchlist={false} // Will be determined by toggle result
+          initialUserRating={movie.userRating || null}
           onToggleWatchlist={async () => {
             const isAdded = await handleToggleWatchlist(movie);
             return isAdded;
           }}
           onToggleWatched={() => handleToggleWatched(movie)}
           onToggleNotInterested={() => handleToggleNotInterested(movie)}
+          onRate={async (rating: number) => await handleRate(movie, rating)}
           onRemove={() => handleRemove(movie)}
         />
         {!isLastMovie && <View style={styles.divider} />}
@@ -357,6 +416,7 @@ export default function ResultsScreen() {
           }, 100);
         }}
       />
+      <AlertComponent />
     </SafeAreaView>
   );
 }

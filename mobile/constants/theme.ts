@@ -9,6 +9,7 @@ export const theme = {
     primarySoft: '#0099AA', // Softer, less intense shade for buttons
     secondary: '#FF00FF', // Neon magenta/purple
     secondaryDark: '#E600E6',
+    rating: '#FFD700', // Golden yellow for ratings only
     border: '#333333',
     error: '#FF4444',
   },

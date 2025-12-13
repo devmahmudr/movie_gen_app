@@ -150,10 +150,11 @@ export const recommendationsAPI = {
     excludeIds?: string[];
     language?: string;
   }) => {
-    // Use a longer timeout for recommendations since it involves OpenAI + TMDb calls
-    const response = await apiClient.post('/recommend', data, {
-      timeout: 60000, // 60 seconds - recommendations can take time
-    });
+      // Use a longer timeout for recommendations since it involves OpenAI + TMDb calls
+      // Increased timeout to handle retries and multiple API calls
+      const response = await apiClient.post('/recommend', data, {
+        timeout: 90000, // 90 seconds - recommendations can take time with retries
+      });
     return response.data;
   },
   getMovieDetails: async (movieId: string, language?: string) => {
@@ -174,6 +175,10 @@ export const historyAPI = {
   },
   markAsNotInterested: async (historyId: string) => {
     const response = await apiClient.patch(`/history/${historyId}/not-interested`);
+    return response.data;
+  },
+  setRating: async (historyId: string, rating: number) => {
+    const response = await apiClient.put(`/history/${historyId}`, { userRating: rating });
     return response.data;
   },
 };

@@ -45,8 +45,9 @@ export default function RootLayout() {
     // Let the quiz screen handle the auth check when generating recommendations
   }, [token, isLoading, segments, router]);
 
-  // Hide navbar on onboarding and auth pages
-  const hideNavbar = pathname === '/' || 
+  // Hide navbar on onboarding, auth pages, or when user is not authenticated
+  const hideNavbar = !token || 
+                     pathname === '/' || 
                      pathname === '/index' || 
                      pathname?.startsWith('/(auth)');
 

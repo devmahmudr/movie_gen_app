@@ -29,17 +29,20 @@ export class RecommendationsService {
   ): Promise<Movie[]> {
     // Get language preference (default to ru-RU)
     const language = recommendDto.language || 'ru-RU';
-    // Retrieve user's movie history
+    // Retrieve ALL user's movie history to get all rated/watched/not interested movies
+    // We need ALL of them, not just last 20, to properly exclude rated movies
     const movieHistory = await this.movieHistoryRepository.find({
       where: { userId },
       order: { shownAt: 'DESC' },
-      take: 20, // Get last 20 movies for context
     });
 
-    // Filter for movies to avoid: only those marked as watched OR not interested
+    // Filter for movies to avoid: those marked as watched, not interested, OR rated
     const moviesToAvoid = movieHistory.filter(
-      (h) => h.isWatched === true || h.isNotInterested === true,
+      (h) => h.isWatched === true || h.isNotInterested === true || h.userRating !== null,
     );
+    
+    // Create a Set of movieIds to avoid for faster lookup during processing
+    const avoidedMovieIds = new Set(moviesToAvoid.map((h) => h.movieId));
 
     // Fetch titles for excluded IDs if provided
     const excludedTitles: string[] = [];
@@ -78,7 +81,7 @@ export class RecommendationsService {
     const movies: Movie[] = [];
     const excludeIdsSet = new Set(recommendDto.excludeIds || []);
     const failedTitles = new Set<string>();
-    const maxAttempts = 3;
+    const maxAttempts = 5; // Increased from 3 to 5 for better reliability
     let attemptCount = 0;
 
     // Helper function to build dynamic prompt
@@ -97,8 +100,8 @@ export class RecommendationsService {
           : 'No viewing history';
 
       const isGeneratingMore = recommendDto.excludeIds && recommendDto.excludeIds.length > 0;
-      // Request more movies than needed to account for potential failures (request at least 3-5 to have backups)
-      const requestCount = Math.max(moviesNeeded + 2, 3); // Request at least 2 more than needed, minimum 3
+      // Request more movies upfront to process in parallel (8-10 movies, process all at once, take first 3 successful)
+      const requestCount = Math.max(moviesNeeded * 3, 8); // Request 8-10 movies to process in parallel
       const movieCountInstruction = moviesNeeded === 3
         ? (isGeneratingMore ? 'recommend 3 NEW movies (different from previously shown ones)' : 'recommend exactly 3 movies')
         : `recommend ${requestCount} movies (you previously suggested movies that could not be found, so provide ${requestCount} NEW different movies as backups)`;
@@ -117,10 +120,29 @@ User's SPECIFIC preferences (ALL 4 answers must be considered):
         prompt += `\n- CRITICAL FORMAT REQUIREMENT: The user has selected "Мультфильм" (Cartoon/Animated). ALL recommendations MUST be animated films or animated series. DO NOT recommend live-action content. Only animated/cartoon content is acceptable.`;
       }
 
-      // CRITICAL: The 4th question (similarTo) is VERY IMPORTANT - emphasize it prominently
+      // CRITICAL: The 4th question (similarTo) is VERY IMPORTANT - check if it aligns with Q2/Q3
       if (recommendDto.similarTo && recommendDto.similarTo.trim()) {
-        prompt += `\n\n5. CRITICAL USER REQUEST - SIMILAR MOVIE DESCRIPTION: "${recommendDto.similarTo}"
-This is the user's explicit description of what kind of movie they want. You MUST prioritize this requirement. Find movies that match this description closely. This is not optional - it is a direct request from the user about the movie's plot, theme, or content.`;
+        // Check if similarTo logically aligns with moods and tags
+        // If it doesn't align, prioritize similarTo over Q2/Q3
+        const similarToLower = recommendDto.similarTo.toLowerCase();
+        const moodsString = recommendDto.moods.join(' ').toLowerCase();
+        const tagsString = recommendDto.tags.join(' ').toLowerCase();
+        
+        // Simple heuristic: if similarTo mentions something that doesn't match moods/tags, prioritize it
+        const hasConflict = !similarToLower.includes(moodsString) && 
+                           !similarToLower.includes(tagsString) &&
+                           !moodsString.includes(similarToLower) &&
+                           !tagsString.includes(similarToLower);
+        
+        if (hasConflict) {
+          // Q4 doesn't align with Q2/Q3 - prioritize Q4
+          prompt += `\n\n5. CRITICAL USER REQUEST - SIMILAR MOVIE DESCRIPTION: "${recommendDto.similarTo}"
+IMPORTANT: The user's explicit description does not align with their previous mood/tag selections. In this case, you MUST prioritize this description over the previous answers (moods and tags). Find movies that match this description closely, similar to the example provided. This is the PRIMARY requirement - the user wants something specific like "${recommendDto.similarTo}".`;
+        } else {
+          // Q4 aligns with Q2/Q3 - use all together
+          prompt += `\n\n5. CRITICAL USER REQUEST - SIMILAR MOVIE DESCRIPTION: "${recommendDto.similarTo}"
+This is the user's explicit description of what kind of movie they want. You MUST prioritize this requirement along with the moods and tags. Find movies that match this description closely while also considering the selected moods and tags. This is not optional - it is a direct request from the user about the movie's plot, theme, or content.`;
+        }
       } else {
         prompt += `\n\n5. Additional preferences: None specified`;
       }
@@ -146,26 +168,33 @@ This is the user's explicit description of what kind of movie they want. You MUS
         ? '\nNOTE: Since the user is requesting additional recommendations, you may be slightly more flexible with matching criteria while still maintaining relevance to the core preferences. The goal is to find NEW movies that the user hasn\'t seen yet.'
         : '';
 
-      prompt += `\n\nCRITICAL REQUIREMENTS (ALL 5 preferences must be considered):
-1. Each recommended movie MUST directly match the user's moods: ${recommendDto.moods.join(', ')}
-2. Each recommended movie MUST align with the atmosphere/themes: ${recommendDto.tags.join(', ')}
-3. Each recommended movie MUST fit the watching context: ${recommendDto.context}
+      prompt += `\n\nREQUIREMENTS:
+1. Match moods: ${recommendDto.moods.join(', ')}
+2. Match themes: ${recommendDto.tags.join(', ')}
+3. Context: ${recommendDto.context}
 ${formatRequirement}`;
 
       // Emphasize similarTo requirement more strongly
       if (recommendDto.similarTo && recommendDto.similarTo.trim()) {
-        prompt += `\n5. CRITICAL - SIMILAR MOVIE REQUIREMENT: The user explicitly requested: "${recommendDto.similarTo}". This is REQUIRED and MUST be prioritized. Each recommended movie MUST match this description closely in terms of plot, theme, setting, or story elements. This is the 4th answer from the user and is MANDATORY to consider.`;
+        const similarToLower = recommendDto.similarTo.toLowerCase();
+        const moodsString = recommendDto.moods.join(' ').toLowerCase();
+        const tagsString = recommendDto.tags.join(' ').toLowerCase();
+        const hasConflict = !similarToLower.includes(moodsString) && 
+                           !similarToLower.includes(tagsString) &&
+                           !moodsString.includes(similarToLower) &&
+                           !tagsString.includes(similarToLower);
+        
+        if (hasConflict) {
+          prompt += `\n5. CRITICAL - SIMILAR MOVIE REQUIREMENT (PRIORITY OVER Q2/Q3): The user explicitly requested: "${recommendDto.similarTo}". Since this does not align with the previous mood/tag selections, you MUST prioritize this description. Each recommended movie MUST match this description closely (e.g., if user wants "something like Harry Potter", recommend fantasy/magic movies similar to Harry Potter, regardless of the previous mood/tag selections). This is the PRIMARY requirement.`;
+        } else {
+          prompt += `\n5. CRITICAL - SIMILAR MOVIE REQUIREMENT: The user explicitly requested: "${recommendDto.similarTo}". This is REQUIRED and MUST be prioritized along with moods and tags. Each recommended movie MUST match this description closely in terms of plot, theme, setting, or story elements. This is the 4th answer from the user and is MANDATORY to consider.`;
+        }
       } else {
         prompt += `\n5. Similar movie preference: Not specified (user skipped this question)`;
       }
 
       prompt += `
-6. DO NOT recommend random popular movies - they must match ALL criteria above (especially #5 if provided)
-7. DO NOT recommend movies from the AVOID list above (this includes movies already shown to the user)
-8. Each movie should have a clear connection to ALL user preferences listed above
-9. Ensure diversity while maintaining relevance to preferences
-10. Prioritize movies available on major streaming platforms
-11. Use exact movie titles as they appear in TMDb database${flexibilityNote}
+Rules: Match ALL criteria. Avoid AVOID list. Ensure diversity. Use exact TMDb titles.${flexibilityNote}
 
 Return ONLY a JSON object with a "recommendations" array containing exactly ${requestCount} objects, each with "title", "year", and "reason" keys. The "reason" MUST be a specific sentence (in Russian) explaining HOW this movie matches the user's selected moods and themes. 
 
@@ -214,6 +243,23 @@ Example format:
         return false;
       }
 
+      // CRITICAL: Check if user has already rated, watched, or marked as not interested this movie
+      // First check the Set for fast lookup, then verify with database query
+      if (avoidedMovieIds.has(tmdbMovie.movieId)) {
+        const existingHistory = await this.movieHistoryRepository.findOne({
+          where: { 
+            userId, 
+            movieId: tmdbMovie.movieId 
+          },
+        });
+
+        if (existingHistory && (existingHistory.userRating !== null || existingHistory.isWatched === true || existingHistory.isNotInterested === true)) {
+          console.log(`[TMDb] Skipping movie (rated/watched/not interested): ${tmdbMovie.title} (ID: ${tmdbMovie.movieId}, rating: ${existingHistory.userRating}, watched: ${existingHistory.isWatched}, notInterested: ${existingHistory.isNotInterested})`);
+          failedTitles.add(rec.title);
+          return false;
+        }
+      }
+
       // Check if already added (by movieId or title)
       if (movies.find((m) => m.movieId === tmdbMovie.movieId || m.title.toLowerCase() === tmdbMovie.title.toLowerCase())) {
         console.log(`[TMDb] Movie already in results, skipping: ${tmdbMovie.title}`);
@@ -228,41 +274,45 @@ Example format:
         year: tmdbMovie.releaseYear,
       });
 
-      // PRIMARY: Search for trailer on YouTube first (respects interface language, better for Russian trailers)
+      // OPTIMIZATION: Fetch trailer from both sources in parallel (non-blocking, timeout after 2 seconds)
+      // This significantly speeds up processing - trailers are optional, movies are not
       let trailerKey: string | null = null;
-      try {
-        // Get both Russian and English titles for YouTube search
-        const movieTitles = await this.tmdbService.getMovieTitles(tmdbMovie.movieId);
-        const titleRu = movieTitles?.titleRu || tmdbMovie.title;
-        const titleEn = movieTitles?.titleEn || tmdbMovie.title;
-        
-        // Extract interface language (ru-RU -> ru, en-US -> en, etc.)
-        const interfaceLanguage = language.split('-')[0].toLowerCase();
-        
-        // Search for trailer on YouTube with interface language preference
-        trailerKey = await this.tmdbService.searchTrailerOnYouTube(
-          titleRu,
-          titleEn,
-          interfaceLanguage,
-        );
-        if (trailerKey) {
-          console.log(`[YouTube] Trailer found from YouTube for ${tmdbMovie.title} in language ${interfaceLanguage}`);
-        }
-      } catch (youtubeError) {
-        console.log(`[YouTube] Could not find trailer on YouTube for ${tmdbMovie.title}:`, youtubeError.message);
-      }
-      
-      // FALLBACK: If no trailer from YouTube, try TMDb videos endpoint (respects language parameter)
-      if (!trailerKey) {
+      const trailerPromise = (async () => {
         try {
-          trailerKey = await this.tmdbService.getMovieVideos(tmdbMovie.movieId, language);
-          if (trailerKey) {
-            console.log(`[TMDb] Trailer found from TMDb videos API (fallback) for ${tmdbMovie.title} in language ${language}`);
+          // Get both Russian and English titles for YouTube search
+          const movieTitles = await this.tmdbService.getMovieTitles(tmdbMovie.movieId);
+          const titleRu = movieTitles?.titleRu || tmdbMovie.title;
+          const titleEn = movieTitles?.titleEn || tmdbMovie.title;
+          
+          // Extract interface language (ru-RU -> ru, en-US -> en, etc.)
+          const interfaceLanguage = language.split('-')[0].toLowerCase();
+          
+          // Fetch from both sources in parallel with timeout
+          const [youtubeResult, tmdbResult] = await Promise.allSettled([
+            this.tmdbService.searchTrailerOnYouTube(titleRu, titleEn, interfaceLanguage),
+            this.tmdbService.getMovieVideos(tmdbMovie.movieId, language),
+          ]);
+          
+          // Use YouTube first if available, otherwise TMDb
+          if (youtubeResult.status === 'fulfilled' && youtubeResult.value) {
+            trailerKey = youtubeResult.value;
+            console.log(`[YouTube] Trailer found from YouTube for ${tmdbMovie.title}`);
+          } else if (tmdbResult.status === 'fulfilled' && tmdbResult.value) {
+            trailerKey = tmdbResult.value;
+            console.log(`[TMDb] Trailer found from TMDb videos API for ${tmdbMovie.title}`);
           }
-        } catch (videoError) {
-          console.log(`[TMDb] Could not fetch trailer from TMDb videos for ${tmdbMovie.title}:`, videoError.message);
+        } catch (error) {
+          // Silently fail - trailers are optional
+          console.log(`[Trailer] Could not fetch trailer for ${tmdbMovie.title}`);
         }
-      }
+      })();
+      
+      // Set timeout for trailer fetching (2 seconds max, don't block movie processing)
+      const trailerTimeout = new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 2000);
+      });
+      
+      await Promise.race([trailerPromise, trailerTimeout]);
 
       // Save to movie history without rating/feedback
       const savedHistory = await this.movieHistoryRepository.save({
@@ -284,6 +334,7 @@ Example format:
         historyId: savedHistory.id,
         isWatched: savedHistory.isWatched,
         isNotInterested: savedHistory.isNotInterested,
+        userRating: savedHistory.userRating || null,
         overview: tmdbMovie.overview,
         country: tmdbMovie.country,
         imdbRating: tmdbMovie.imdbRating,
@@ -322,20 +373,101 @@ Example format:
 
       try {
         // Get recommendations from OpenAI (request more than needed for backups)
-        const openaiRecommendations = await this.openAIService.getRecommendations(prompt);
+        let openaiRecommendations;
+        try {
+          openaiRecommendations = await this.openAIService.getRecommendations(prompt);
+        } catch (openaiError: any) {
+          console.error(`[OpenAI] Service error on attempt ${attemptCount}:`, openaiError);
+          // If OpenAI fails, wait and retry instead of immediately failing
+          if (attemptCount < maxAttempts) {
+            console.log(`[Recommendations] OpenAI error, will retry on next attempt...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue; // Skip to next iteration
+          }
+          throw openaiError; // Only throw if we've exhausted all attempts
+        }
 
-        // Process each recommendation until we have 3 movies
-        let processedCount = 0;
+        // Process recommendations in parallel with TRUE EARLY EXIT - return immediately when 3 movies found
+        const maxParallel = 8;
+        const recommendationsToProcess = openaiRecommendations.slice(0, maxParallel);
+        const moviesNeeded = 3 - movies.length;
+        
+        console.log(`[Recommendations] Processing ${recommendationsToProcess.length} recommendations in parallel (need ${moviesNeeded} more)...`);
+        
         let successfulCount = 0;
-        for (const rec of openaiRecommendations) {
-          if (movies.length >= 3) break;
-          processedCount++;
-          const success = await processRecommendation(rec);
-          if (success) successfulCount++;
+        let failedCount = 0;
+        let completedCount = 0;
+        const startTime = Date.now();
+        let shouldStop = false;
+        let checkInterval: NodeJS.Timeout | null = null;
+        
+        // Create a promise that resolves when we have 3 movies (for early exit)
+        const earlyExitPromise = new Promise<void>((resolve) => {
+          checkInterval = setInterval(() => {
+            if (movies.length >= 3 || shouldStop) {
+              if (checkInterval) {
+                clearInterval(checkInterval);
+                checkInterval = null;
+              }
+              resolve();
+            }
+          }, 10); // Check every 10ms
+        });
+        
+        // Process all recommendations in parallel
+        const processingPromises = recommendationsToProcess.map(async (rec, index) => {
+          try {
+            const success = await processRecommendation(rec);
+            completedCount++;
+            
+            if (success) {
+              successfulCount++;
+              // Check if we should stop (have 3 movies) - check immediately after push
+              if (movies.length >= 3 && !shouldStop) {
+                shouldStop = true;
+                if (checkInterval) {
+                  clearInterval(checkInterval);
+                  checkInterval = null;
+                }
+                const elapsed = Date.now() - startTime;
+                console.log(`[Recommendations] ✓ Early exit: Found 3 movies in ${elapsed}ms. Processed ${completedCount}/${recommendationsToProcess.length}. Remaining ${recommendationsToProcess.length - completedCount} will continue in background.`);
+              }
+            } else {
+              failedCount++;
+            }
+            
+            return { success, index };
+          } catch (error) {
+            completedCount++;
+            failedCount++;
+            console.error(`[Recommendations] Error processing recommendation ${index + 1}:`, error);
+            return { success: false, index };
+          }
+        });
+        
+        try {
+          // Race between early exit (when we have 3 movies) and all processing completing
+          await Promise.race([
+            earlyExitPromise,
+            Promise.allSettled(processingPromises).then(() => {
+              shouldStop = true;
+              if (checkInterval) {
+                clearInterval(checkInterval);
+                checkInterval = null;
+              }
+            }),
+          ]);
+        } finally {
+          // Ensure interval is always cleaned up
+          if (checkInterval) {
+            clearInterval(checkInterval);
+            checkInterval = null;
+          }
         }
         
-        // Log processing results
-        console.log(`[Recommendations] Processed ${processedCount} of ${openaiRecommendations.length} recommendations: ${successfulCount} successful, ${processedCount - successfulCount} failed. Total movies found: ${movies.length}/3`);
+        const elapsed = Date.now() - startTime;
+        const actuallyProcessed = completedCount;
+        console.log(`[Recommendations] Processing complete: ${successfulCount} successful, ${failedCount} failed, ${actuallyProcessed} processed in ${elapsed}ms. Total movies: ${movies.length}/3`);
 
         // If we still need more movies, wait a bit before retrying to avoid rate limits
         if (movies.length < 3 && attemptCount < maxAttempts) {
@@ -344,18 +476,24 @@ Example format:
         }
       } catch (error) {
         console.error(`[OpenAI] Error on attempt ${attemptCount}:`, error);
-        // If it's the first attempt and we have no movies, throw the error
-        if (movies.length === 0) {
+        // Don't throw immediately - allow retries even on first attempt
+        // Only throw if we've exhausted all attempts and have no movies
+        if (attemptCount >= maxAttempts) {
+          // If we have some movies, return them instead of throwing
+          if (movies.length > 0) {
+            console.warn(`[Recommendations] Reached max attempts (${maxAttempts}) but have ${movies.length} movie(s). Returning partial results.`);
+            break;
+          }
+          // Only throw if we have absolutely no movies after all retries
           throw error;
         }
-        // Otherwise, continue to next attempt if available
-        if (attemptCount >= maxAttempts) {
-          break;
-        }
+        // Wait before retrying to avoid rate limits
+        console.log(`[Recommendations] Waiting before retry attempt ${attemptCount + 1}...`);
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Increased wait time
       }
     }
 
-    // Validate final result
+    // Validate final result - be more lenient, allow partial results
     if (movies.length === 0) {
       const hasExclusions = recommendDto.excludeIds && recommendDto.excludeIds.length > 0;
       const errorMessage = hasExclusions
@@ -368,9 +506,9 @@ Example format:
       );
     }
 
-    // Log final result
+    // Log final result - accept partial results (1-2 movies) instead of failing
     if (movies.length < 3) {
-      console.warn(`[Recommendations] WARNING: Only returning ${movies.length} movie(s) after ${attemptCount} attempts (requested 3)`);
+      console.warn(`[Recommendations] WARNING: Only returning ${movies.length} movie(s) after ${attemptCount} attempts (requested 3). This is acceptable - returning partial results.`);
     } else {
       console.log(`[Recommendations] Successfully returning ${movies.length} movie(s) (requested 3)`);
     }
@@ -530,6 +668,18 @@ Example format:
         order: { shownAt: 'DESC' },
       });
 
+      // Calculate public rating (average rating from all users for this movie)
+      const allRatings = await this.movieHistoryRepository.find({
+        where: { movieId },
+        select: ['userRating'],
+      });
+      const validRatings = allRatings
+        .map(h => h.userRating)
+        .filter((rating): rating is number => rating !== null && rating !== undefined);
+      const publicRating = validRatings.length > 0
+        ? validRatings.reduce((sum, rating) => sum + rating, 0) / validRatings.length
+        : undefined;
+
       return {
         movieId: movieInfo.movieId,
         title: movieInfo.title,
@@ -540,6 +690,8 @@ Example format:
         historyId: history?.id,
         isWatched: history?.isWatched || false,
         isNotInterested: history?.isNotInterested || false,
+        userRating: history?.userRating || null,
+        publicRating: publicRating ? Number(publicRating.toFixed(1)) : undefined,
         overview: movieInfo.overview,
         country: movieInfo.country,
         imdbRating,

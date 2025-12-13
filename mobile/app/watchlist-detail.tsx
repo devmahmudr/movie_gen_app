@@ -27,6 +27,8 @@ interface Movie {
   historyId?: string;
   isWatched?: boolean;
   isNotInterested?: boolean;
+  userRating?: number | null;
+  publicRating?: number;
 }
 
 export default function WatchlistDetailScreen() {
@@ -141,6 +143,21 @@ export default function WatchlistDetailScreen() {
     }
   };
 
+  const handleRate = async (movie: Movie, rating: number) => {
+    if (!movie.historyId) {
+      console.warn('No historyId for movie:', movie.title);
+      return;
+    }
+    try {
+      const updated = await historyAPI.setRating(movie.historyId, rating);
+      console.log(`Rated movie: ${movie.title}`, updated.userRating);
+      setMovie(prev => prev ? { ...prev, userRating: updated.userRating, isWatched: true } : null);
+    } catch (error: any) {
+      console.error('Error rating movie:', error);
+      throw error;
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -197,12 +214,14 @@ export default function WatchlistDetailScreen() {
             initialIsWatched={movie.isWatched || false}
             initialIsNotInterested={movie.isNotInterested || false}
             initialIsInWatchlist={isInWatchlist}
+            initialUserRating={movie.userRating || null}
             onToggleWatchlist={async () => {
               const isAdded = await handleToggleWatchlist(movie);
               return isAdded;
             }}
             onToggleWatched={() => handleToggleWatched(movie)}
             onToggleNotInterested={() => handleToggleNotInterested(movie)}
+            onRate={async (rating: number) => await handleRate(movie, rating)}
           />
         </Animated.View>
       </ScrollView>
