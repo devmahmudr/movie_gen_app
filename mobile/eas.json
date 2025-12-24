@@ -7,7 +7,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://192.168.100.115:3000"
+        "EXPO_PUBLIC_API_URL": "http://192.168.100.123:3000"
       }
     },
     "preview": {
