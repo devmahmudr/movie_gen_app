@@ -44,6 +44,9 @@ export class RecommendationsService {
     // Create a Set of movieIds to avoid for faster lookup during processing
     const avoidedMovieIds = new Set(moviesToAvoid.map((h) => h.movieId));
 
+    // Initialize excludeIdsSet early so it can be used in similarTo processing
+    const excludeIdsSet = new Set(recommendDto.excludeIds || []);
+
     // Fetch titles for excluded IDs if provided
     const excludedTitles: string[] = [];
     if (recommendDto.excludeIds && recommendDto.excludeIds.length > 0) {
@@ -77,11 +80,59 @@ export class RecommendationsService {
       }
     }
 
+    // Extract and exclude the example movie from similarTo field
+    // The similarTo field is an example - results should be similar but NOT include that movie
+    let exampleMovieId: string | null = null;
+    let exampleMovieTitle: string | null = null;
+    if (recommendDto.similarTo && recommendDto.similarTo.trim()) {
+      try {
+        // Try to extract movie title from similarTo text
+        // It could be: "something like Harry Potter" or just "Harry Potter"
+        const similarToText = recommendDto.similarTo.trim();
+        
+        // Common patterns: "like X", "similar to X", "X", "something like X"
+        let potentialTitle = similarToText;
+        const patterns = [
+          /(?:like|similar to|something like|как|похож на|типа)\s+(.+)/i,
+          /(.+?)(?:\s+трейлер|\s+фильм|\s+сериал)/i,
+        ];
+        
+        for (const pattern of patterns) {
+          const match = similarToText.match(pattern);
+          if (match && match[1]) {
+            potentialTitle = match[1].trim();
+            break;
+          }
+        }
+        
+        // Try to find the movie in TMDb
+        console.log(`[Recommendations] Searching for example movie from similarTo: "${potentialTitle}"`);
+        const exampleMovie = await this.tmdbService.searchMovie(potentialTitle, undefined, language);
+        
+        if (exampleMovie) {
+          exampleMovieId = exampleMovie.movieId;
+          exampleMovieTitle = exampleMovie.title;
+          
+          // Add to exclusion sets
+          excludeIdsSet.add(exampleMovieId);
+          excludedTitles.push(exampleMovieTitle);
+          
+          console.log(`[Recommendations] Found example movie to exclude: "${exampleMovieTitle}" (ID: ${exampleMovieId})`);
+        } else {
+          console.log(`[Recommendations] Could not find example movie "${potentialTitle}" in TMDb, will exclude by title in prompt`);
+          // If we can't find it, still add the potential title to excluded titles
+          excludedTitles.push(potentialTitle);
+        }
+      } catch (error) {
+        console.error(`[Recommendations] Error extracting example movie from similarTo:`, error);
+        // Continue - we'll still mention it in the prompt
+      }
+    }
+
     // Initialize tracking variables
     const movies: Movie[] = [];
-    const excludeIdsSet = new Set(recommendDto.excludeIds || []);
     const failedTitles = new Set<string>();
-    const maxAttempts = 5; // Increased from 3 to 5 for better reliability
+    const maxAttempts = 10; // Increased to 10 to ensure we always get 3 valid movies
     let attemptCount = 0;
 
     // Helper function to build dynamic prompt
@@ -100,15 +151,17 @@ export class RecommendationsService {
           : 'No viewing history';
 
       const isGeneratingMore = recommendDto.excludeIds && recommendDto.excludeIds.length > 0;
-      // Request more movies upfront to process in parallel (8-10 movies, process all at once, take first 3 successful)
-      const requestCount = Math.max(moviesNeeded * 3, 8); // Request 8-10 movies to process in parallel
+      // Request more movies upfront to process in parallel - request at least 15 to ensure we find 3 valid ones
+      const requestCount = Math.max(moviesNeeded * 5, 15); // Request 15+ movies to process in parallel
       const movieCountInstruction = moviesNeeded === 3
-        ? (isGeneratingMore ? 'recommend 3 NEW movies (different from previously shown ones)' : 'recommend exactly 3 movies')
+        ? (isGeneratingMore ? 'recommend 3 NEW movies (different from previously shown ones) that STRICTLY match ALL the same criteria' : 'recommend exactly 3 movies')
         : `recommend ${requestCount} movies (you previously suggested movies that could not be found, so provide ${requestCount} NEW different movies as backups)`;
       
-      let prompt = `You are a professional movie recommendation expert. Your task is to ${movieCountInstruction} that PRECISELY match the user's specific preferences. DO NOT recommend random movies.
-
-CRITICAL: Use EXACT English titles as they appear in TMDb (The Movie Database). If a movie has a Russian title, you MUST still use its English title from TMDb. For example, use "Zombieland: Double Tap" NOT "Зомбилэнд: Контрольный выстрел". Search TMDb mentally to ensure the title exists exactly as written.
+      const strictnessHeader = isGeneratingMore 
+        ? `You are a professional movie recommendation expert. Your task is to ${movieCountInstruction}. These are ADDITIONAL recommendations - they must match the SAME strict criteria as the original recommendations. DO NOT be flexible. DO NOT compromise on any criteria. Match ALL criteria strictly. DO NOT recommend random movies.`
+        : `You are a professional movie recommendation expert. Your task is to ${movieCountInstruction} that PRECISELY match the user's specific preferences. DO NOT recommend random movies.`;
+      
+      let prompt = strictnessHeader + `\n\nCRITICAL: Use EXACT English titles as they appear in TMDb (The Movie Database). If a movie has a Russian title, you MUST still use its English title from TMDb. For example, use "Zombieland: Double Tap" NOT "Зомбилэнд: Контрольный выстрел". Search TMDb mentally to ensure the title exists exactly as written.
 
 User's SPECIFIC preferences (ALL 4 answers must be considered):
 1. Watching context: ${recommendDto.context}
@@ -120,7 +173,7 @@ User's SPECIFIC preferences (ALL 4 answers must be considered):
         prompt += `\n- CRITICAL FORMAT REQUIREMENT: The user has selected "Мультфильм" (Cartoon/Animated). ALL recommendations MUST be animated films or animated series. DO NOT recommend live-action content. Only animated/cartoon content is acceptable.`;
       }
 
-      // CRITICAL: The 4th question (similarTo) is VERY IMPORTANT - check if it aligns with Q2/Q3
+      // CRITICAL: The 4th question (similarTo) is an EXAMPLE movie - results should be similar but NOT include that movie
       if (recommendDto.similarTo && recommendDto.similarTo.trim()) {
         // Check if similarTo logically aligns with moods and tags
         // If it doesn't align, prioritize similarTo over Q2/Q3
@@ -134,14 +187,18 @@ User's SPECIFIC preferences (ALL 4 answers must be considered):
                            !moodsString.includes(similarToLower) &&
                            !tagsString.includes(similarToLower);
         
+        const exampleMovieNote = exampleMovieTitle 
+          ? ` CRITICAL: The user provided "${exampleMovieTitle}" as an EXAMPLE. You MUST recommend movies SIMILAR to "${exampleMovieTitle}" but DO NOT include "${exampleMovieTitle}" itself in the recommendations.`
+          : ` CRITICAL: The user provided "${recommendDto.similarTo}" as an EXAMPLE. You MUST recommend movies SIMILAR to this example but DO NOT include the example movie itself in the recommendations.`;
+        
         if (hasConflict) {
           // Q4 doesn't align with Q2/Q3 - prioritize Q4
-          prompt += `\n\n5. CRITICAL USER REQUEST - SIMILAR MOVIE DESCRIPTION: "${recommendDto.similarTo}"
-IMPORTANT: The user's explicit description does not align with their previous mood/tag selections. In this case, you MUST prioritize this description over the previous answers (moods and tags). Find movies that match this description closely, similar to the example provided. This is the PRIMARY requirement - the user wants something specific like "${recommendDto.similarTo}".`;
+          prompt += `\n\n5. CRITICAL USER REQUEST - SIMILAR MOVIE EXAMPLE: "${recommendDto.similarTo}"
+IMPORTANT: The user's explicit example does not align with their previous mood/tag selections. In this case, you MUST prioritize this example over the previous answers (moods and tags). Find movies that are SIMILAR to this example.${exampleMovieNote} This is the PRIMARY requirement - the user wants something similar to "${recommendDto.similarTo}".`;
         } else {
           // Q4 aligns with Q2/Q3 - use all together
-          prompt += `\n\n5. CRITICAL USER REQUEST - SIMILAR MOVIE DESCRIPTION: "${recommendDto.similarTo}"
-This is the user's explicit description of what kind of movie they want. You MUST prioritize this requirement along with the moods and tags. Find movies that match this description closely while also considering the selected moods and tags. This is not optional - it is a direct request from the user about the movie's plot, theme, or content.`;
+          prompt += `\n\n5. CRITICAL USER REQUEST - SIMILAR MOVIE EXAMPLE: "${recommendDto.similarTo}"
+This is the user's explicit example of what kind of movie they want. You MUST recommend movies that are SIMILAR to this example while also considering the selected moods and tags.${exampleMovieNote} This is not optional - it is a direct request from the user about the movie's plot, theme, or content.`;
         }
       } else {
         prompt += `\n\n5. Additional preferences: None specified`;
@@ -162,16 +219,28 @@ This is the user's explicit description of what kind of movie they want. You MUS
 
       const formatRequirement = recommendDto.format === 'Мультфильм' 
         ? `4. FORMAT IS CRITICAL: All recommendations MUST be animated films or animated series (cartoons). NO live-action content allowed.`
+        : recommendDto.format === 'Фильм'
+        ? `4. FORMAT IS CRITICAL: All recommendations MUST be live-action films (movies). NO animated/cartoon content allowed.`
+        : recommendDto.format === 'Сериал'
+        ? `4. FORMAT IS CRITICAL: All recommendations MUST be TV series. NO films or cartoons allowed.`
         : `4. Respect the format preference: ${recommendDto.format}`;
 
-      const flexibilityNote = isGeneratingMore 
-        ? '\nNOTE: Since the user is requesting additional recommendations, you may be slightly more flexible with matching criteria while still maintaining relevance to the core preferences. The goal is to find NEW movies that the user hasn\'t seen yet.'
+      const strictnessNote = isGeneratingMore 
+        ? `\n\nCRITICAL STRICTNESS REQUIREMENT FOR ADDITIONAL RECOMMENDATIONS:
+The user is requesting MORE movies that match their ORIGINAL preferences. You MUST be STRICT and match ALL of the following criteria EXACTLY:
+- Context: ${recommendDto.context} (MUST match)
+- Moods: ${recommendDto.moods.join(', ')} (MUST match ALL)
+- Tags: ${recommendDto.tags.join(', ')} (MUST match ALL)
+- Format: ${recommendDto.format} (MUST match exactly)
+${recommendDto.similarTo ? `- Similar to: ${recommendDto.similarTo} (MUST be similar)` : ''}
+
+DO NOT be flexible. DO NOT compromise on any criteria. Only recommend movies that match ALL of the above requirements. The goal is to find NEW movies that match the SAME strict criteria as the original recommendations.`
         : '';
 
-      prompt += `\n\nREQUIREMENTS:
-1. Match moods: ${recommendDto.moods.join(', ')}
-2. Match themes: ${recommendDto.tags.join(', ')}
-3. Context: ${recommendDto.context}
+      prompt += `\n\nSTRICT REQUIREMENTS (ALL must be matched - NO exceptions):
+1. Moods: ${recommendDto.moods.join(', ')} - MUST match ALL of these moods
+2. Themes/Tags: ${recommendDto.tags.join(', ')} - MUST match ALL of these themes
+3. Context: ${recommendDto.context} - MUST match this watching context
 ${formatRequirement}`;
 
       // Emphasize similarTo requirement more strongly
@@ -184,19 +253,30 @@ ${formatRequirement}`;
                            !moodsString.includes(similarToLower) &&
                            !tagsString.includes(similarToLower);
         
+        const exampleExclusionNote = exampleMovieTitle 
+          ? ` DO NOT recommend "${exampleMovieTitle}" itself - it is only an EXAMPLE.`
+          : ` DO NOT recommend the example movie itself - it is only an EXAMPLE.`;
+        
         if (hasConflict) {
-          prompt += `\n5. CRITICAL - SIMILAR MOVIE REQUIREMENT (PRIORITY OVER Q2/Q3): The user explicitly requested: "${recommendDto.similarTo}". Since this does not align with the previous mood/tag selections, you MUST prioritize this description. Each recommended movie MUST match this description closely (e.g., if user wants "something like Harry Potter", recommend fantasy/magic movies similar to Harry Potter, regardless of the previous mood/tag selections). This is the PRIMARY requirement.`;
+          prompt += `\n5. CRITICAL - SIMILAR MOVIE EXAMPLE (PRIORITY OVER Q2/Q3): The user provided "${recommendDto.similarTo}" as an EXAMPLE. Since this does not align with the previous mood/tag selections, you MUST prioritize this example. Each recommended movie MUST be SIMILAR to this example (e.g., if user wants "something like Harry Potter", recommend fantasy/magic movies similar to Harry Potter, regardless of the previous mood/tag selections).${exampleExclusionNote} This is the PRIMARY requirement.`;
         } else {
-          prompt += `\n5. CRITICAL - SIMILAR MOVIE REQUIREMENT: The user explicitly requested: "${recommendDto.similarTo}". This is REQUIRED and MUST be prioritized along with moods and tags. Each recommended movie MUST match this description closely in terms of plot, theme, setting, or story elements. This is the 4th answer from the user and is MANDATORY to consider.`;
+          prompt += `\n5. CRITICAL - SIMILAR MOVIE EXAMPLE: The user provided "${recommendDto.similarTo}" as an EXAMPLE. This is REQUIRED and MUST be prioritized along with moods and tags. Each recommended movie MUST be SIMILAR to this example in terms of plot, theme, setting, or story elements.${exampleExclusionNote} This is the 4th answer from the user and is MANDATORY to consider.`;
         }
       } else {
         prompt += `\n5. Similar movie preference: Not specified (user skipped this question)`;
       }
 
       prompt += `
-Rules: Match ALL criteria. Avoid AVOID list. Ensure diversity. Use exact TMDb titles.${flexibilityNote}
+STRICT RULES (NO exceptions):
+- Match ALL criteria above (moods, tags, context, format${recommendDto.similarTo ? ', similarTo' : ''})
+- Avoid AVOID list (never recommend excluded movies)
+- Ensure diversity (different movies from previous recommendations)
+- Use exact TMDb titles only
+${strictnessNote}
 
 Return ONLY a JSON object with a "recommendations" array containing exactly ${requestCount} objects, each with "title", "year", and "reason" keys. The "reason" MUST be a specific sentence (in Russian) explaining HOW this movie matches the user's selected moods and themes. 
+
+CRITICAL: You MUST provide exactly ${requestCount} different movie recommendations. Use well-known, popular movies that definitely exist in TMDb database. Avoid obscure or very recent movies that might not be in the database yet. Prioritize mainstream, widely-known films.
 
 CRITICAL TITLE REQUIREMENT: Use EXACT English titles as they appear in TMDb database. DO NOT use Russian translations. For example:
 - Use "Zombieland: Double Tap" NOT "Зомбилэнд: Контрольный выстрел"
@@ -221,13 +301,13 @@ Example format:
     const processRecommendation = async (rec: any): Promise<boolean> => {
       console.log(`[OpenAI] Processing recommendation: ${rec.title} (${rec.year || 'no year'})`);
       
-      // First try with year
-      let tmdbMovie = await this.tmdbService.searchMovie(rec.title, rec.year, language);
+      // First try with year and format preference
+      let tmdbMovie = await this.tmdbService.searchMovie(rec.title, rec.year, language, recommendDto.format);
       
-      // If not found, try without year constraint
+      // If not found, try without year constraint but keep format preference
       if (!tmdbMovie) {
         console.log(`[TMDb] Movie not found with year, trying without year: ${rec.title}`);
-        tmdbMovie = await this.tmdbService.searchMovie(rec.title, undefined, language);
+        tmdbMovie = await this.tmdbService.searchMovie(rec.title, undefined, language, recommendDto.format);
       }
 
       if (!tmdbMovie) {
@@ -267,39 +347,54 @@ Example format:
         return false;
       }
 
-      console.log(`[TMDb] Movie found:`, {
+      // VALIDATION: Check if movie has all required data before proceeding
+      if (!tmdbMovie.movieId || !tmdbMovie.title || !tmdbMovie.posterPath || tmdbMovie.posterPath.trim() === '') {
+        console.warn(`[TMDb] Movie missing required data - rejecting:`, {
+          movieId: tmdbMovie.movieId || 'MISSING',
+          title: tmdbMovie.title || 'MISSING',
+          posterPath: tmdbMovie.posterPath || 'MISSING',
+        });
+        failedTitles.add(rec.title);
+        return false;
+      }
+
+      console.log(`[TMDb] Movie found and validated:`, {
         id: tmdbMovie.movieId,
         title: tmdbMovie.title,
         genres: tmdbMovie.genres,
         year: tmdbMovie.releaseYear,
+        hasPoster: !!tmdbMovie.posterPath,
       });
 
       // OPTIMIZATION: Fetch trailer from both sources in parallel (non-blocking, timeout after 2 seconds)
       // This significantly speeds up processing - trailers are optional, movies are not
+      // CRITICAL: Prioritize TMDb videos API (uses movieId) over YouTube search (uses title) to avoid mismatched trailers
       let trailerKey: string | null = null;
       const trailerPromise = (async () => {
         try {
-          // Get both Russian and English titles for YouTube search
-          const movieTitles = await this.tmdbService.getMovieTitles(tmdbMovie.movieId);
-          const titleRu = movieTitles?.titleRu || tmdbMovie.title;
-          const titleEn = movieTitles?.titleEn || tmdbMovie.title;
-          
           // Extract interface language (ru-RU -> ru, en-US -> en, etc.)
           const interfaceLanguage = language.split('-')[0].toLowerCase();
           
-          // Fetch from both sources in parallel with timeout
-          const [youtubeResult, tmdbResult] = await Promise.allSettled([
-            this.tmdbService.searchTrailerOnYouTube(titleRu, titleEn, interfaceLanguage),
-            this.tmdbService.getMovieVideos(tmdbMovie.movieId, language),
-          ]);
+          // PRIORITY 1: Fetch from TMDb videos API first (uses movieId, ensures correct movie)
+          // This is more reliable than YouTube search which can match similar-named movies
+          const tmdbResult = await this.tmdbService.getMovieVideos(tmdbMovie.movieId, language);
           
-          // Use YouTube first if available, otherwise TMDb
-          if (youtubeResult.status === 'fulfilled' && youtubeResult.value) {
-            trailerKey = youtubeResult.value;
-            console.log(`[YouTube] Trailer found from YouTube for ${tmdbMovie.title}`);
-          } else if (tmdbResult.status === 'fulfilled' && tmdbResult.value) {
-            trailerKey = tmdbResult.value;
-            console.log(`[TMDb] Trailer found from TMDb videos API for ${tmdbMovie.title}`);
+          if (tmdbResult) {
+            trailerKey = tmdbResult;
+            console.log(`[TMDb] Trailer found from TMDb videos API (movieId-based) for ${tmdbMovie.title}`);
+          } else {
+            // FALLBACK: Only use YouTube search if TMDb doesn't have a trailer
+            // Get both Russian and English titles for YouTube search
+            const movieTitles = await this.tmdbService.getMovieTitles(tmdbMovie.movieId);
+            const titleRu = movieTitles?.titleRu || tmdbMovie.title;
+            const titleEn = movieTitles?.titleEn || tmdbMovie.title;
+            
+            const youtubeResult = await this.tmdbService.searchTrailerOnYouTube(titleRu, titleEn, interfaceLanguage);
+            
+            if (youtubeResult) {
+              trailerKey = youtubeResult;
+              console.log(`[YouTube] Trailer found from YouTube (fallback, title-based) for ${tmdbMovie.title}`);
+            }
           }
         } catch (error) {
           // Silently fail - trailers are optional
@@ -359,8 +454,9 @@ Example format:
       // Build dynamic prompt with current state
       const prompt = buildPrompt(moviesNeeded, failedTitles, alreadyFoundTitles);
       
-      // Calculate how many we'll request (for logging)
-      const requestCount = Math.max(moviesNeeded + 2, 3);
+      // Calculate how many we'll request - request significantly more to account for failures
+      // Request at least 15 movies to ensure we can find 3 valid ones after filtering
+      const requestCount = Math.max(moviesNeeded * 5, 15);
       console.log(`[Recommendations] Requesting ${requestCount} movies from OpenAI (need ${moviesNeeded}, requesting ${requestCount} for backup options)`);
 
       // Log the prompt for debugging (only first attempt or if retrying)
@@ -388,7 +484,8 @@ Example format:
         }
 
         // Process recommendations in parallel with TRUE EARLY EXIT - return immediately when 3 movies found
-        const maxParallel = 8;
+        // Process more recommendations in parallel to increase chances of finding 3 valid movies
+        const maxParallel = Math.min(openaiRecommendations.length, 20); // Process up to 20 in parallel
         const recommendationsToProcess = openaiRecommendations.slice(0, maxParallel);
         const moviesNeeded = 3 - movies.length;
         
@@ -493,28 +590,70 @@ Example format:
       }
     }
 
+    // FINAL VALIDATION: Filter out any movies with missing critical data before returning
+    const validMovies = movies.filter(movie => {
+      const isValid = 
+        movie.movieId && 
+        movie.movieId.trim() !== '' &&
+        movie.title && 
+        movie.title.trim() !== '' &&
+        movie.posterPath && 
+        movie.posterPath.trim() !== '' &&
+        movie.posterPath !== 'https://image.tmdb.org/t/p/w500'; // Not just the base URL without path
+
+      if (!isValid) {
+        console.warn(`[Recommendations] Filtering out invalid movie:`, {
+          movieId: movie.movieId || 'MISSING',
+          title: movie.title || 'MISSING',
+          posterPath: movie.posterPath || 'MISSING',
+        });
+      }
+
+      return isValid;
+    });
+
     // Validate final result - be more lenient, allow partial results
-    if (movies.length === 0) {
+    if (validMovies.length === 0) {
       const hasExclusions = recommendDto.excludeIds && recommendDto.excludeIds.length > 0;
       const errorMessage = hasExclusions
         ? 'Could not find additional matching movies. All recommendations may have already been shown. Please try again with different preferences.'
         : 'Could not find matching movies. Please try again with different preferences.';
       
+      console.error(`[Recommendations] No valid movies found after filtering. Original count: ${movies.length}, Valid count: ${validMovies.length}`);
       throw new HttpException(
         errorMessage,
         HttpStatus.NOT_FOUND,
       );
     }
 
-    // Log final result - accept partial results (1-2 movies) instead of failing
-    if (movies.length < 3) {
-      console.warn(`[Recommendations] WARNING: Only returning ${movies.length} movie(s) after ${attemptCount} attempts (requested 3). This is acceptable - returning partial results.`);
-    } else {
-      console.log(`[Recommendations] Successfully returning ${movies.length} movie(s) (requested 3)`);
+    // Log final result
+    if (validMovies.length < movies.length) {
+      console.warn(`[Recommendations] Filtered out ${movies.length - validMovies.length} invalid movie(s). Returning ${validMovies.length} valid movie(s).`);
     }
 
-    // Return movies array sliced to maximum of 3
-    return movies.slice(0, 3);
+    // CRITICAL: Always return exactly 3 movies or throw error - no partial results
+    if (validMovies.length < 3) {
+      const hasExclusions = recommendDto.excludeIds && recommendDto.excludeIds.length > 0;
+      const errorMessage = hasExclusions
+        ? `Could not find 3 matching movies. Found ${validMovies.length} valid movie(s) after ${attemptCount} attempts. All recommendations may have already been shown. Please try again with different preferences.`
+        : `Could not find 3 matching movies. Found ${validMovies.length} valid movie(s) after ${attemptCount} attempts. Please try again with different preferences.`;
+      
+      console.error(`[Recommendations] FAILED: Only found ${validMovies.length} valid movie(s) after ${attemptCount} attempts (required 3).`);
+      throw new HttpException(
+        errorMessage,
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    console.log(`[Recommendations] Successfully returning 3 valid movie(s) after ${attemptCount} attempt(s)`);
+
+    // Log all returned movies for debugging
+    validMovies.slice(0, 3).forEach((movie, index) => {
+      console.log(`[Recommendations] Movie ${index + 1}: "${movie.title}" (ID: ${movie.movieId}, Poster: ${movie.posterPath ? 'YES' : 'NO'})`);
+    });
+
+    // Return exactly 3 movies
+    return validMovies.slice(0, 3);
   }
 
   async getMovieDetails(userId: string, movieId: string, language: string = 'ru-RU'): Promise<Movie> {
@@ -588,12 +727,19 @@ Example format:
         console.log(`[TMDb] Could not fetch certification for ${movieId}`);
       }
 
+      // VALIDATION: Check if poster exists - required for valid movie
+      if (!response.data.poster_path || response.data.poster_path.trim() === '') {
+        console.warn(`[TMDb] Movie "${response.data.title}" (ID: ${response.data.id}) has no poster - rejecting`);
+        throw new HttpException(
+          'Movie poster not available',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
       const movieInfo = {
         movieId: response.data.id.toString(),
         title: response.data.title,
-        posterPath: response.data.poster_path
-          ? `https://image.tmdb.org/t/p/w500${response.data.poster_path}`
-          : '',
+        posterPath: `https://image.tmdb.org/t/p/w500${response.data.poster_path}`,
         genres: response.data.genres?.map((g: any) => g.name) || [],
         releaseYear: response.data.release_date ? response.data.release_date.split('-')[0] : '',
         overview: response.data.overview || '',
@@ -605,6 +751,17 @@ Example format:
       // Get IMDb rating
       let imdbRating: number | undefined;
       const imdbId = response.data.external_ids?.imdb_id;
+      
+      // Helper function to validate and clamp IMDb rating to 0-10 range
+      const validateImdbRating = (rating: number): number => {
+        if (isNaN(rating) || rating < 0) return 0;
+        if (rating > 10) {
+          console.warn(`[TMDb] IMDb rating ${rating} exceeds 10, clamping to 10`);
+          return 10;
+        }
+        return parseFloat(rating.toFixed(1));
+      };
+
       if (imdbId) {
         try {
           const omdbResponse = await axios.get(`http://www.omdbapi.com/`, {
@@ -615,50 +772,55 @@ Example format:
             timeout: 3000,
           });
           if (omdbResponse.data?.imdbRating) {
-            imdbRating = parseFloat(omdbResponse.data.imdbRating);
+            const rawRating = parseFloat(omdbResponse.data.imdbRating);
+            imdbRating = validateImdbRating(rawRating);
           }
         } catch (omdbError) {
-          if (response.data.vote_average) {
-            imdbRating = parseFloat((response.data.vote_average * 1.111).toFixed(1));
+          // TMDb vote_average is already on 0-10 scale, use it directly
+          if (response.data.vote_average !== undefined && response.data.vote_average !== null) {
+            imdbRating = validateImdbRating(response.data.vote_average);
           }
         }
-      } else if (response.data.vote_average) {
-        imdbRating = parseFloat((response.data.vote_average * 1.111).toFixed(1));
+      } else if (response.data.vote_average !== undefined && response.data.vote_average !== null) {
+        // TMDb vote_average is already on 0-10 scale, use it directly
+        imdbRating = validateImdbRating(response.data.vote_average);
       }
 
-      // PRIMARY: Search for trailer on YouTube first (respects interface language, better for Russian trailers)
+      // PRIMARY: Fetch trailer from TMDb videos API first (uses movieId, ensures correct movie)
+      // This is more reliable than YouTube search which can match similar-named movies
       let trailerKey: string | null = null;
       try {
-        // Get both Russian and English titles for YouTube search
-        const movieTitles = await this.tmdbService.getMovieTitles(movieId);
-        const titleRu = movieTitles?.titleRu || movieInfo.title;
-        const titleEn = movieTitles?.titleEn || movieInfo.title;
-        
-        // Extract interface language (ru-RU -> ru, en-US -> en, etc.)
-        const interfaceLanguage = language.split('-')[0].toLowerCase();
-        
-        // Search for trailer on YouTube with interface language preference
-        trailerKey = await this.tmdbService.searchTrailerOnYouTube(
-          titleRu,
-          titleEn,
-          interfaceLanguage,
-        );
+        trailerKey = await this.tmdbService.getMovieVideos(movieId, language);
         if (trailerKey) {
-          console.log(`[YouTube] Trailer found from YouTube for ${movieId} in language ${interfaceLanguage}`);
+          console.log(`[TMDb] Trailer found from TMDb videos API (movieId-based) for ${movieId} in language ${language}`);
         }
-      } catch (youtubeError) {
-        console.log(`[YouTube] Could not find trailer on YouTube for ${movieId}:`, youtubeError.message);
+      } catch (videoError) {
+        console.log(`[TMDb] Could not fetch trailer from TMDb videos for ${movieId}:`, videoError.message);
       }
       
-      // FALLBACK: If no trailer from YouTube, try TMDb videos endpoint (respects language parameter)
+      // FALLBACK: Only use YouTube search if TMDb doesn't have a trailer
+      // This ensures we prioritize movieId-based matching over title-based matching
       if (!trailerKey) {
         try {
-          trailerKey = await this.tmdbService.getMovieVideos(movieId, language);
+          // Get both Russian and English titles for YouTube search
+          const movieTitles = await this.tmdbService.getMovieTitles(movieId);
+          const titleRu = movieTitles?.titleRu || movieInfo.title;
+          const titleEn = movieTitles?.titleEn || movieInfo.title;
+          
+          // Extract interface language (ru-RU -> ru, en-US -> en, etc.)
+          const interfaceLanguage = language.split('-')[0].toLowerCase();
+          
+          // Search for trailer on YouTube with interface language preference
+          trailerKey = await this.tmdbService.searchTrailerOnYouTube(
+            titleRu,
+            titleEn,
+            interfaceLanguage,
+          );
           if (trailerKey) {
-            console.log(`[TMDb] Trailer found from TMDb videos API (fallback) for ${movieId} in language ${language}`);
+            console.log(`[YouTube] Trailer found from YouTube (fallback, title-based) for ${movieId} in language ${interfaceLanguage}`);
           }
-        } catch (videoError) {
-          console.log(`[TMDb] Could not fetch trailer from TMDb videos for ${movieId}:`, videoError.message);
+        } catch (youtubeError) {
+          console.log(`[YouTube] Could not find trailer on YouTube for ${movieId}:`, youtubeError.message);
         }
       }
 

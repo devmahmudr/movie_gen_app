@@ -87,9 +87,11 @@ export const MovieCard: React.FC<MovieCardProps> = React.memo(({
     }
   }, [initialIsWatched, initialIsNotInterested, initialIsInWatchlist, initialUserRating, opacityAnim]);
 
-  const posterUrl = movie.posterPath.startsWith('http')
-    ? movie.posterPath
-    : `https://image.tmdb.org/t/p/w500${movie.posterPath}`;
+  const posterUrl = movie.posterPath && movie.posterPath.trim() !== ''
+    ? (movie.posterPath.startsWith('http')
+      ? movie.posterPath
+      : `https://image.tmdb.org/t/p/w500${movie.posterPath}`)
+    : 'https://via.placeholder.com/500x750?text=No+Image';
 
   const handleWatchlistToggle = async () => {
     if (isToggling || !onToggleWatchlist) return; // Prevent multiple simultaneous toggles
@@ -251,41 +253,41 @@ export const MovieCard: React.FC<MovieCardProps> = React.memo(({
 
       <Text style={styles.title}>{movie.title}</Text>
       <View style={styles.metaRow}>
-      {movie.releaseYear && (
+      {!!movie.releaseYear && movie.releaseYear.toString().trim() !== '' && (
         <Text style={styles.year}>{movie.releaseYear}</Text>
       )}
-        {movie.runtime && (
+        {!!movie.runtime && movie.runtime > 0 && (
           <>
-            {movie.releaseYear && <Text style={styles.metaSeparator}> | </Text>}
+            {!!movie.releaseYear && movie.releaseYear.toString().trim() !== '' && <Text style={styles.metaSeparator}> | </Text>}
             <Text style={styles.runtime}>{movie.runtime} мин</Text>
           </>
         )}
-        {movie.ageRating && (
+        {!!movie.ageRating && movie.ageRating.toString().trim() !== '' && (
           <>
-            {(movie.releaseYear || movie.runtime) && <Text style={styles.metaSeparator}> | </Text>}
+            {((!!movie.releaseYear && movie.releaseYear.toString().trim() !== '') || (!!movie.runtime && movie.runtime > 0)) && <Text style={styles.metaSeparator}> | </Text>}
             <Text style={styles.ageRating}>
-              {movie.ageRating.includes('+') ? movie.ageRating : `${movie.ageRating}+`}
+              {movie.ageRating.toString().includes('+') ? movie.ageRating.toString() : `${movie.ageRating}+`}
             </Text>
           </>
         )}
-        {movie.country && (
+        {!!movie.country && movie.country.toString().trim() !== '' && (
           <>
-            {(movie.releaseYear || movie.runtime || movie.ageRating) && <Text style={styles.metaSeparator}> | </Text>}
+            {((!!movie.releaseYear && movie.releaseYear.toString().trim() !== '') || (!!movie.runtime && movie.runtime > 0) || (!!movie.ageRating && movie.ageRating.toString().trim() !== '')) && <Text style={styles.metaSeparator}> | </Text>}
             <Text style={styles.country}>{movie.country}</Text>
           </>
         )}
-        {movie.imdbRating && (
+        {!!movie.imdbRating && movie.imdbRating > 0 && (
           <>
-            {(movie.releaseYear || movie.runtime || movie.ageRating || movie.country) && <Text style={styles.metaSeparator}> | </Text>}
+            {((!!movie.releaseYear && movie.releaseYear.toString().trim() !== '') || (!!movie.runtime && movie.runtime > 0) || (!!movie.ageRating && movie.ageRating.toString().trim() !== '') || (!!movie.country && movie.country.toString().trim() !== '')) && <Text style={styles.metaSeparator}> | </Text>}
             <View style={styles.imdbContainer}>
               <Text style={styles.imdbText}>IMDb</Text>
               <Text style={styles.imdbRating}>{movie.imdbRating.toFixed(1)}</Text>
             </View>
           </>
         )}
-        {movie.publicRating && (
+        {!!movie.publicRating && movie.publicRating > 0 && (
           <>
-            {(movie.releaseYear || movie.runtime || movie.ageRating || movie.country || movie.imdbRating) && <Text style={styles.metaSeparator}> | </Text>}
+            {((!!movie.releaseYear && movie.releaseYear.toString().trim() !== '') || (!!movie.runtime && movie.runtime > 0) || (!!movie.ageRating && movie.ageRating.toString().trim() !== '') || (!!movie.country && movie.country.toString().trim() !== '') || (!!movie.imdbRating && movie.imdbRating > 0)) && <Text style={styles.metaSeparator}> | </Text>}
             <View style={styles.publicRatingContainer}>
               <Ionicons name="star" size={14} color={theme.colors.rating} />
               <Text style={styles.publicRating}>{movie.publicRating.toFixed(1)}</Text>

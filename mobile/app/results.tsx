@@ -15,6 +15,8 @@ import { theme } from '../constants/theme';
 import { watchlistAPI, historyAPI, recommendationsAPI } from '../services/apiClient';
 import { useLanguageStore } from '../store/languageStore';
 import { useAlert } from '../hooks/useAlert';
+import { useResultsStore } from '../store/resultsStore';
+import { useEffect } from 'react';
 
 interface Movie {
   movieId: string;
@@ -55,6 +57,25 @@ export default function ResultsScreen() {
   const flatListRef = useRef<FlatList>(null);
   const { showAlert, AlertComponent } = useAlert();
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
+  const { setHasResults } = useResultsStore();
+
+  // Set results state when component mounts
+  useEffect(() => {
+    // Store navigation state with params so we can navigate back
+    const navigation = {
+      pathname: '/results',
+      params: {
+        movies: params.movies as string,
+        quizAnswers: params.quizAnswers as string,
+      },
+    };
+    setHasResults(true, navigation);
+    
+    // Clean up when component unmounts (user navigates away permanently)
+    return () => {
+      // Don't clear immediately - let it persist for navigation
+    };
+  }, [setHasResults, params.movies, params.quizAnswers]);
 
   const [movies, setMovies] = useState<Movie[]>(() => {
     try {
